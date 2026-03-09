@@ -1,0 +1,23 @@
+using FluentValidation;
+using Microsoft.Extensions.DependencyInjection;
+using Myrati.Application.Services;
+
+namespace Myrati.Application.DependencyInjection;
+
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection AddApplicationServices(this IServiceCollection services)
+    {
+        services.AddValidatorsFromAssembly(typeof(ServiceCollectionExtensions).Assembly);
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<IProductsService, ProductsService>();
+        services.AddScoped<IClientsService, ClientsService>();
+        services.AddScoped<IUsersService, UsersService>();
+        services.AddScoped<ISettingsService, SettingsService>();
+        services.AddScoped<IProfileService, ProfileService>();
+        services.AddScoped<IPublicSiteService, PublicSiteService>();
+        services.AddScoped<ILicenseActivationService, LicenseActivationService>();
+        return services;
+    }
+}

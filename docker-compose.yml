@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: myrati-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-myrati}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - myrati-postgres-data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: ./src/Myrati.API/Dockerfile
+    container_name: myrati-api
+    depends_on:
+      - postgres
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__MyratiDb: ${MYRATI_DB_CONNECTION:-Host=postgres;Port=5432;Database=myrati;Username=postgres;Password=postgres}
+      Jwt__Issuer: ${MYRATI_JWT_ISSUER:-Myrati}
+      Jwt__Audience: ${MYRATI_JWT_AUDIENCE:-Myrati.Backoffice}
+      Jwt__Key: ${MYRATI_JWT_KEY:-CHANGE_THIS_FOR_A_LONG_RANDOM_SECRET_KEY_32+}
+    ports:
+      - "8080:8080"
+
+volumes:
+  myrati-postgres-data:

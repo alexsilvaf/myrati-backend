@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Myrati.API/Myrati.API.csproj" />
+    <Project Path="src/Myrati.Application/Myrati.Application.csproj" />
+    <Project Path="src/Myrati.Domain/Myrati.Domain.csproj" />
+    <Project Path="src/Myrati.Infrastructure/Myrati.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Myrati.API.Tests/Myrati.API.Tests.csproj" />
+    <Project Path="tests/Myrati.Application.Tests/Myrati.Application.Tests.csproj" />
+  </Folder>
+</Solution>

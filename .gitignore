@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+.vscode/
+TestResults/
+.env
+coverage/
+src/Myrati.API/appsettings.Local.json
+src/Myrati.API/appsettings.*.Local.json
