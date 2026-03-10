@@ -31,7 +31,7 @@ public sealed class CreateTeamMemberRequestValidator : AbstractValidator<CreateT
     {
         RuleFor(x => x.Name).NotEmpty();
         RuleFor(x => x.Email).NotEmpty().EmailAddress();
-        RuleFor(x => x.Role).Must(role => role is "Super Admin" or "Admin" or "Viewer");
+        RuleFor(x => x.Role).Must(role => role is "Super Admin" or "Admin" or "Viewer" or "Desenvolvedor");
     }
 }
 
@@ -41,7 +41,7 @@ public sealed class UpdateTeamMemberRequestValidator : AbstractValidator<UpdateT
     {
         RuleFor(x => x.Name).NotEmpty();
         RuleFor(x => x.Email).NotEmpty().EmailAddress();
-        RuleFor(x => x.Role).Must(role => role is "Super Admin" or "Admin" or "Viewer");
+        RuleFor(x => x.Role).Must(role => role is "Super Admin" or "Admin" or "Viewer" or "Desenvolvedor");
         RuleFor(x => x.Status).Must(status => status is "Ativo" or "Convite Pendente");
     }
 }

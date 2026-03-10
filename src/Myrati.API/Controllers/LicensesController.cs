@@ -6,7 +6,7 @@ using Myrati.Application.Services;
 namespace Myrati.API.Controllers;
 
 [ApiController]
-[Authorize(Policy = "BackofficeWrite")]
+[Authorize(Policy = "ProductScopedWrite")]
 [Route("api/v1/backoffice")]
 public sealed class LicensesController(IProductsService productsService) : ControllerBase
 {

@@ -166,6 +166,42 @@ public sealed class UpdateProductTaskRequestValidator : AbstractValidator<Update
         priority is "low" or "medium" or "high" or "critical";
 }
 
+public sealed class ProductPermissionSetDtoValidator : AbstractValidator<ProductPermissionSetDto>
+{
+    public ProductPermissionSetDtoValidator()
+    {
+        RuleFor(x => x).NotNull();
+    }
+}
+
+public sealed class ProductCollaboratorPermissionsDtoValidator : AbstractValidator<ProductCollaboratorPermissionsDto>
+{
+    public ProductCollaboratorPermissionsDtoValidator()
+    {
+        RuleFor(x => x.Tasks).SetValidator(new ProductPermissionSetDtoValidator());
+        RuleFor(x => x.Sprints).SetValidator(new ProductPermissionSetDtoValidator());
+        RuleFor(x => x.Licenses).SetValidator(new ProductPermissionSetDtoValidator());
+        RuleFor(x => x.Product).SetValidator(new ProductPermissionSetDtoValidator());
+    }
+}
+
+public sealed class AddProductCollaboratorRequestValidator : AbstractValidator<AddProductCollaboratorRequest>
+{
+    public AddProductCollaboratorRequestValidator()
+    {
+        RuleFor(x => x.MemberId).NotEmpty();
+        RuleFor(x => x.Permissions).SetValidator(new ProductCollaboratorPermissionsDtoValidator());
+    }
+}
+
+public sealed class UpdateProductCollaboratorRequestValidator : AbstractValidator<UpdateProductCollaboratorRequest>
+{
+    public UpdateProductCollaboratorRequestValidator()
+    {
+        RuleFor(x => x.Permissions).SetValidator(new ProductCollaboratorPermissionsDtoValidator());
+    }
+}
+
 internal static class ProductValidationRules
 {
     public static void ValidatePlanPricing(

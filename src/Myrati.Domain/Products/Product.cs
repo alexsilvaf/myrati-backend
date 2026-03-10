@@ -16,4 +16,5 @@ public sealed class Product : Entity
     public ICollection<License> Licenses { get; set; } = new List<License>();
     public ICollection<ProductSprint> Sprints { get; set; } = new List<ProductSprint>();
     public ICollection<ProductTask> Tasks { get; set; } = new List<ProductTask>();
+    public ICollection<ProductCollaborator> Collaborators { get; set; } = new List<ProductCollaborator>();
 }

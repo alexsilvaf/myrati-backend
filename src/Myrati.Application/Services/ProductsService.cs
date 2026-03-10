@@ -13,6 +13,7 @@ namespace Myrati.Application.Services;
 
 public sealed class ProductsService(
     IMyratiDbContext dbContext,
+    ICurrentUserContext currentUserContext,
     IValidator<CreateProductRequest> createProductValidator,
     IValidator<UpdateProductRequest> updateProductValidator,
     IValidator<CreateLicenseRequest> createLicenseValidator,
@@ -21,29 +22,84 @@ public sealed class ProductsService(
     IValidator<UpdateProductSprintRequest> updateSprintValidator,
     IValidator<CreateProductTaskRequest> createTaskValidator,
     IValidator<UpdateProductTaskRequest> updateTaskValidator,
+    IValidator<AddProductCollaboratorRequest> addCollaboratorValidator,
+    IValidator<UpdateProductCollaboratorRequest> updateCollaboratorValidator,
     IRealtimeEventPublisher realtimeEventPublisher) : IProductsService
 {
     private static readonly string[] KanbanColumnOrder = ["backlog", "todo", "in_progress", "review", "done"];
+    private const string DeveloperRole = "Desenvolvedor";
 
     public async Task<IReadOnlyCollection<ProductSummaryDto>> GetProductsAsync(CancellationToken cancellationToken = default)
     {
-        var products = await dbContext.Products
+        var productsQuery = dbContext.Products.AsQueryable();
+
+        if (!IsAdminRole(currentUserContext.Role))
+        {
+            var currentUserId = GetRequiredCurrentUserId();
+            var visibleProductIds = await dbContext.ProductCollaborators
+                .Where(x => x.MemberId == currentUserId)
+                .Select(x => x.ProductId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            if (visibleProductIds.Count == 0)
+            {
+                return [];
+            }
+
+            productsQuery = productsQuery.Where(x => visibleProductIds.Contains(x.Id));
+        }
+
+        var products = await productsQuery
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
-        var plans = await dbContext.ProductPlans.ToListAsync(cancellationToken);
-        var licenses = await dbContext.Licenses.ToListAsync(cancellationToken);
+
+        if (products.Count == 0)
+        {
+            return [];
+        }
+
+        var productIds = products.Select(x => x.Id).ToArray();
+        var plans = await dbContext.ProductPlans
+            .Where(x => productIds.Contains(x.ProductId))
+            .ToListAsync(cancellationToken);
+        var licenses = await dbContext.Licenses
+            .Where(x => productIds.Contains(x.ProductId))
+            .ToListAsync(cancellationToken);
+        var collaborators = await dbContext.ProductCollaborators
+            .Where(x => productIds.Contains(x.ProductId))
+            .ToListAsync(cancellationToken);
+        var memberIds = collaborators
+            .Select(x => x.MemberId)
+            .Distinct()
+            .ToArray();
+
+        Dictionary<string, Domain.Identity.AdminUser> membersById;
+        if (memberIds.Length == 0)
+        {
+            membersById = new Dictionary<string, Domain.Identity.AdminUser>(StringComparer.Ordinal);
+        }
+        else
+        {
+            membersById = await dbContext.AdminUsers
+                .Where(x => memberIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, StringComparer.Ordinal, cancellationToken);
+        }
 
         return products
             .Select(product => MapProductSummary(
                 product,
                 plans.Where(x => x.ProductId == product.Id),
-                licenses.Where(x => x.ProductId == product.Id)))
+                licenses.Where(x => x.ProductId == product.Id),
+                collaborators.Where(x => x.ProductId == product.Id),
+                membersById))
             .ToArray();
     }
 
     public async Task<ProductDetailDto> GetProductAsync(string productId, CancellationToken cancellationToken = default)
     {
         var product = await GetProductEntityAsync(productId, cancellationToken);
+        await EnsureProductReadAccessAsync(product.Id, cancellationToken);
 
         var plans = await dbContext.ProductPlans
             .Where(x => x.ProductId == product.Id)
@@ -55,9 +111,27 @@ public sealed class ProductsService(
             .ThenBy(x => x.ExpiryDate)
             .ToListAsync(cancellationToken);
         var clients = await dbContext.Clients.ToListAsync(cancellationToken);
+        var collaborators = await dbContext.ProductCollaborators
+            .Where(x => x.ProductId == product.Id)
+            .ToListAsync(cancellationToken);
+        var collaboratorMemberIds = collaborators
+            .Select(x => x.MemberId)
+            .Distinct()
+            .ToArray();
+        Dictionary<string, Domain.Identity.AdminUser> membersById;
+        if (collaboratorMemberIds.Length == 0)
+        {
+            membersById = new Dictionary<string, Domain.Identity.AdminUser>(StringComparer.Ordinal);
+        }
+        else
+        {
+            membersById = await dbContext.AdminUsers
+                .Where(x => collaboratorMemberIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, StringComparer.Ordinal, cancellationToken);
+        }
         var kanban = await BuildKanbanAsync(product, cancellationToken);
 
-        return MapProductDetail(product, plans, licenses, clients, kanban);
+        return MapProductDetail(product, plans, collaborators, membersById, licenses, clients, kanban);
     }
 
     public async Task<ProductDetailDto> CreateProductAsync(CreateProductRequest request, CancellationToken cancellationToken = default)
@@ -92,6 +166,7 @@ public sealed class ProductsService(
 
         await dbContext.AddAsync(product, cancellationToken);
         await ReplacePlansAsync(productId, request.Plans, cancellationToken);
+        await AddCreatorFullAccessAsync(productId, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         var response = await GetProductAsync(productId, cancellationToken);
@@ -104,6 +179,7 @@ public sealed class ProductsService(
         UpdateProductRequest request,
         CancellationToken cancellationToken = default)
     {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Product, ProductPermissionAction.Edit, cancellationToken);
         await updateProductValidator.ValidateRequestAsync(request, cancellationToken);
 
         var product = await GetProductEntityAsync(productId, cancellationToken);
@@ -146,6 +222,7 @@ public sealed class ProductsService(
     public async Task DeleteProductAsync(string productId, CancellationToken cancellationToken = default)
     {
         var product = await GetProductEntityAsync(productId, cancellationToken);
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Product, ProductPermissionAction.Delete, cancellationToken);
 
         var hasLicenses = await dbContext.Licenses.AnyAsync(x => x.ProductId == productId, cancellationToken);
         if (hasLicenses)
@@ -199,6 +276,7 @@ public sealed class ProductsService(
         CreateLicenseRequest request,
         CancellationToken cancellationToken = default)
     {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Licenses, ProductPermissionAction.Create, cancellationToken);
         await createLicenseValidator.ValidateRequestAsync(request, cancellationToken);
 
         var product = await GetProductEntityAsync(productId, cancellationToken);
@@ -251,6 +329,7 @@ public sealed class ProductsService(
         var license = await dbContext.Licenses
             .FirstOrDefaultAsync(x => x.Id == licenseId, cancellationToken)
             ?? throw new EntityNotFoundException("Licença", licenseId);
+        await EnsureProductPermissionAsync(license.ProductId, ProductPermissionScope.Licenses, ProductPermissionAction.Edit, cancellationToken);
         var client = await dbContext.Clients
             .FirstOrDefaultAsync(x => x.Id == request.ClientId, cancellationToken)
             ?? throw new EntityNotFoundException("Cliente", request.ClientId);
@@ -288,6 +367,7 @@ public sealed class ProductsService(
         var license = await dbContext.Licenses
             .FirstOrDefaultAsync(x => x.Id == licenseId, cancellationToken)
             ?? throw new EntityNotFoundException("Licença", licenseId);
+        await EnsureProductPermissionAsync(license.ProductId, ProductPermissionScope.Licenses, ProductPermissionAction.Edit, cancellationToken);
 
         license.Status = "Suspensa";
         dbContext.Update(license);
@@ -303,6 +383,7 @@ public sealed class ProductsService(
         var license = await dbContext.Licenses
             .FirstOrDefaultAsync(x => x.Id == licenseId, cancellationToken)
             ?? throw new EntityNotFoundException("Licença", licenseId);
+        await EnsureProductPermissionAsync(license.ProductId, ProductPermissionScope.Licenses, ProductPermissionAction.Edit, cancellationToken);
 
         license.Status = DetermineLicenseStatus(license.StartDate, license.ExpiryDate);
         dbContext.Update(license);
@@ -318,6 +399,7 @@ public sealed class ProductsService(
         var license = await dbContext.Licenses
             .FirstOrDefaultAsync(x => x.Id == licenseId, cancellationToken)
             ?? throw new EntityNotFoundException("Licença", licenseId);
+        await EnsureProductPermissionAsync(license.ProductId, ProductPermissionScope.Licenses, ProductPermissionAction.Delete, cancellationToken);
 
         dbContext.Remove(license);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -330,6 +412,7 @@ public sealed class ProductsService(
     public async Task<ProductKanbanDto> GetKanbanAsync(string productId, CancellationToken cancellationToken = default)
     {
         var product = await GetProductEntityAsync(productId, cancellationToken);
+        await EnsureProductReadAccessAsync(product.Id, cancellationToken);
         return await BuildKanbanAsync(product, cancellationToken);
     }
 
@@ -338,6 +421,7 @@ public sealed class ProductsService(
         CreateProductSprintRequest request,
         CancellationToken cancellationToken = default)
     {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Sprints, ProductPermissionAction.Create, cancellationToken);
         await createSprintValidator.ValidateRequestAsync(request, cancellationToken);
 
         var product = await GetProductEntityAsync(productId, cancellationToken);
@@ -376,6 +460,7 @@ public sealed class ProductsService(
         UpdateProductSprintRequest request,
         CancellationToken cancellationToken = default)
     {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Sprints, ProductPermissionAction.Edit, cancellationToken);
         await updateSprintValidator.ValidateRequestAsync(request, cancellationToken);
 
         var product = await GetProductEntityAsync(productId, cancellationToken);
@@ -402,6 +487,7 @@ public sealed class ProductsService(
 
     public async Task DeleteSprintAsync(string productId, string sprintId, CancellationToken cancellationToken = default)
     {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Sprints, ProductPermissionAction.Delete, cancellationToken);
         var product = await GetProductEntityAsync(productId, cancellationToken);
         EnsureProductSupportsKanban(product);
 
@@ -422,6 +508,7 @@ public sealed class ProductsService(
         CreateProductTaskRequest request,
         CancellationToken cancellationToken = default)
     {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Tasks, ProductPermissionAction.Create, cancellationToken);
         await createTaskValidator.ValidateRequestAsync(request, cancellationToken);
 
         var product = await GetProductEntityAsync(productId, cancellationToken);
@@ -460,6 +547,7 @@ public sealed class ProductsService(
         UpdateProductTaskRequest request,
         CancellationToken cancellationToken = default)
     {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Tasks, ProductPermissionAction.Edit, cancellationToken);
         await updateTaskValidator.ValidateRequestAsync(request, cancellationToken);
 
         var product = await GetProductEntityAsync(productId, cancellationToken);
@@ -493,6 +581,7 @@ public sealed class ProductsService(
 
     public async Task DeleteTaskAsync(string productId, string taskId, CancellationToken cancellationToken = default)
     {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Tasks, ProductPermissionAction.Delete, cancellationToken);
         var product = await GetProductEntityAsync(productId, cancellationToken);
         EnsureProductSupportsKanban(product);
 
@@ -500,6 +589,76 @@ public sealed class ProductsService(
         dbContext.Remove(task);
         await dbContext.SaveChangesAsync(cancellationToken);
         await PublishBackofficeEventAsync("task.deleted", new { task.Id, task.ProductId, task.SprintId, task.Title }, cancellationToken);
+    }
+
+    public async Task<ProductCollaboratorDto> AddCollaboratorAsync(
+        string productId,
+        AddProductCollaboratorRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Product, ProductPermissionAction.Edit, cancellationToken);
+        await addCollaboratorValidator.ValidateRequestAsync(request, cancellationToken);
+        _ = await GetProductEntityAsync(productId, cancellationToken);
+
+        var member = await dbContext.AdminUsers
+            .FirstOrDefaultAsync(x => x.Id == request.MemberId, cancellationToken)
+            ?? throw new EntityNotFoundException("Membro", request.MemberId);
+
+        if (member.Role != DeveloperRole || member.Status != "Ativo")
+        {
+            throw new ConflictException("Apenas membros ativos com função Desenvolvedor podem ser adicionados como colaboradores.");
+        }
+
+        var collaboratorExists = await dbContext.ProductCollaborators
+            .AnyAsync(x => x.ProductId == productId && x.MemberId == request.MemberId, cancellationToken);
+
+        if (collaboratorExists)
+        {
+            throw new ConflictException("Este desenvolvedor já está vinculado ao produto.");
+        }
+
+        var collaborator = new ProductCollaborator
+        {
+            ProductId = productId,
+            MemberId = member.Id,
+            AddedDate = DateOnly.FromDateTime(DateTime.UtcNow)
+        };
+        ApplyPermissions(collaborator, request.Permissions);
+
+        await dbContext.AddAsync(collaborator, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return MapCollaborator(collaborator, member);
+    }
+
+    public async Task<ProductCollaboratorDto> UpdateCollaboratorAsync(
+        string productId,
+        string memberId,
+        UpdateProductCollaboratorRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Product, ProductPermissionAction.Edit, cancellationToken);
+        await updateCollaboratorValidator.ValidateRequestAsync(request, cancellationToken);
+
+        var collaborator = await GetCollaboratorAsync(productId, memberId, cancellationToken);
+        var member = await dbContext.AdminUsers
+            .FirstOrDefaultAsync(x => x.Id == memberId, cancellationToken)
+            ?? throw new EntityNotFoundException("Membro", memberId);
+
+        ApplyPermissions(collaborator, request.Permissions);
+        dbContext.Update(collaborator);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return MapCollaborator(collaborator, member);
+    }
+
+    public async Task DeleteCollaboratorAsync(string productId, string memberId, CancellationToken cancellationToken = default)
+    {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Product, ProductPermissionAction.Edit, cancellationToken);
+
+        var collaborator = await GetCollaboratorAsync(productId, memberId, cancellationToken);
+        dbContext.Remove(collaborator);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private async Task ReplacePlansAsync(
@@ -528,6 +687,33 @@ public sealed class ProductsService(
         await dbContext.Products
             .FirstOrDefaultAsync(x => x.Id == productId, cancellationToken)
         ?? throw new EntityNotFoundException("Produto", productId);
+
+    private async Task AddCreatorFullAccessAsync(string productId, CancellationToken cancellationToken)
+    {
+        if (IsAdminRole(currentUserContext.Role))
+        {
+            return;
+        }
+
+        var currentUserId = GetRequiredCurrentUserId();
+        var collaborator = new ProductCollaborator
+        {
+            ProductId = productId,
+            MemberId = currentUserId,
+            AddedDate = DateOnly.FromDateTime(DateTime.UtcNow)
+        };
+        ApplyPermissions(collaborator, CreateFullAccessPermissions());
+
+        await dbContext.AddAsync(collaborator, cancellationToken);
+    }
+
+    private async Task<ProductCollaborator> GetCollaboratorAsync(string productId, string memberId, CancellationToken cancellationToken)
+    {
+        var collaborator = await dbContext.ProductCollaborators
+            .FirstOrDefaultAsync(x => x.ProductId == productId && x.MemberId == memberId, cancellationToken);
+
+        return collaborator ?? throw new EntityNotFoundException("Colaborador", $"{productId}:{memberId}");
+    }
 
     private async Task<LicenseDto> GetLicenseAsync(string licenseId, CancellationToken cancellationToken)
     {
@@ -734,9 +920,26 @@ public sealed class ProductsService(
     private static ProductSummaryDto MapProductSummary(
         Product product,
         IEnumerable<ProductPlan> plans,
-        IEnumerable<License> licenses)
+        IEnumerable<License> licenses,
+        IEnumerable<ProductCollaborator> collaborators,
+        IReadOnlyDictionary<string, Domain.Identity.AdminUser> membersById)
     {
         var licensesList = licenses.ToList();
+        var collaboratorSummaries = collaborators
+            .Select(collaborator =>
+            {
+                if (!membersById.TryGetValue(collaborator.MemberId, out var member))
+                {
+                    return null;
+                }
+
+                return MapCollaboratorSummary(collaborator, member);
+            })
+            .Where(x => x is not null)
+            .Select(x => x!)
+            .OrderBy(x => x.MemberName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
         return new ProductSummaryDto(
             product.Id,
             product.Name,
@@ -752,18 +955,36 @@ public sealed class ProductsService(
             plans
                 .OrderBy(x => x.Id)
                 .Select(MapPlan)
-                .ToArray());
+                .ToArray(),
+            collaboratorSummaries);
     }
 
     private static ProductDetailDto MapProductDetail(
         Product product,
         IEnumerable<ProductPlan> plans,
+        IEnumerable<ProductCollaborator> collaborators,
+        IReadOnlyDictionary<string, Domain.Identity.AdminUser> membersById,
         IEnumerable<License> licenses,
         IEnumerable<Domain.Clients.Client> clients,
         ProductKanbanDto kanban)
     {
         var clientsById = clients.ToDictionary(x => x.Id);
         var licensesList = licenses.ToList();
+        var collaboratorDetails = collaborators
+            .Select(collaborator =>
+            {
+                if (!membersById.TryGetValue(collaborator.MemberId, out var member))
+                {
+                    return null;
+                }
+
+                return MapCollaborator(collaborator, member);
+            })
+            .Where(x => x is not null)
+            .Select(x => x!)
+            .OrderBy(x => x.MemberName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
         return new ProductDetailDto(
             product.Id,
             product.Name,
@@ -780,6 +1001,7 @@ public sealed class ProductsService(
                 .OrderBy(x => x.Id)
                 .Select(MapPlan)
                 .ToArray(),
+            collaboratorDetails,
             licensesList
                 .Select(license =>
                 {
@@ -818,6 +1040,27 @@ public sealed class ProductsService(
             license.MonthlyValue,
             license.DevelopmentCost,
             license.RevenueSharePercent);
+
+    private static ProductCollaboratorSummaryDto MapCollaboratorSummary(
+        ProductCollaborator collaborator,
+        Domain.Identity.AdminUser member) =>
+        new(
+            collaborator.MemberId,
+            member.Name,
+            member.Email,
+            member.Role);
+
+    private static ProductCollaboratorDto MapCollaborator(
+        ProductCollaborator collaborator,
+        Domain.Identity.AdminUser member) =>
+        new(
+            collaborator.ProductId,
+            collaborator.MemberId,
+            member.Name,
+            member.Email,
+            member.Role,
+            collaborator.AddedDate.ToIsoDate(),
+            MapPermissions(collaborator));
 
     private static ProductSprintDto MapSprint(ProductSprint sprint) =>
         new(
@@ -881,8 +1124,168 @@ public sealed class ProductsService(
     private static decimal? NormalizeOptionalPercent(decimal? value) =>
         value.HasValue && value.Value > 0 ? value.Value : null;
 
+    private async Task EnsureProductReadAccessAsync(string productId, CancellationToken cancellationToken)
+    {
+        if (IsAdminRole(currentUserContext.Role))
+        {
+            return;
+        }
+
+        var currentUserId = GetRequiredCurrentUserId();
+        var hasAccess = await dbContext.ProductCollaborators
+            .AnyAsync(
+                x => x.ProductId == productId && x.MemberId == currentUserId,
+                cancellationToken);
+
+        if (!hasAccess)
+        {
+            throw new ForbiddenException("Você não possui acesso a este produto.");
+        }
+    }
+
+    private async Task EnsureProductPermissionAsync(
+        string productId,
+        ProductPermissionScope scope,
+        ProductPermissionAction action,
+        CancellationToken cancellationToken)
+    {
+        if (IsAdminRole(currentUserContext.Role))
+        {
+            return;
+        }
+
+        if (!string.Equals(currentUserContext.Role, DeveloperRole, StringComparison.Ordinal))
+        {
+            throw new ForbiddenException("Sua função atual não possui acesso para alterar este recurso.");
+        }
+
+        var currentUserId = GetRequiredCurrentUserId();
+        var collaborator = await dbContext.ProductCollaborators
+            .FirstOrDefaultAsync(
+                x => x.ProductId == productId && x.MemberId == currentUserId,
+                cancellationToken);
+
+        if (collaborator is null)
+        {
+            throw new ForbiddenException("Você não possui acesso de escrita neste produto.");
+        }
+
+        if (!HasPermission(collaborator, scope, action))
+        {
+            throw new ForbiddenException("Você não possui permissão suficiente para executar esta ação neste produto.");
+        }
+    }
+
+    private static bool IsAdminRole(string? role) =>
+        role is "Super Admin" or "Admin";
+
+    private string GetRequiredCurrentUserId()
+    {
+        if (!currentUserContext.IsAuthenticated || string.IsNullOrWhiteSpace(currentUserContext.UserId))
+        {
+            throw new ForbiddenException("Não foi possível identificar o usuário autenticado.");
+        }
+
+        return currentUserContext.UserId;
+    }
+
+    private static bool HasPermission(
+        ProductCollaborator collaborator,
+        ProductPermissionScope scope,
+        ProductPermissionAction action)
+    {
+        return (scope, action) switch
+        {
+            (ProductPermissionScope.Tasks, ProductPermissionAction.View) => collaborator.TasksView,
+            (ProductPermissionScope.Tasks, ProductPermissionAction.Create) => collaborator.TasksCreate,
+            (ProductPermissionScope.Tasks, ProductPermissionAction.Edit) => collaborator.TasksEdit,
+            (ProductPermissionScope.Tasks, ProductPermissionAction.Delete) => collaborator.TasksDelete,
+            (ProductPermissionScope.Sprints, ProductPermissionAction.View) => collaborator.SprintsView,
+            (ProductPermissionScope.Sprints, ProductPermissionAction.Create) => collaborator.SprintsCreate,
+            (ProductPermissionScope.Sprints, ProductPermissionAction.Edit) => collaborator.SprintsEdit,
+            (ProductPermissionScope.Sprints, ProductPermissionAction.Delete) => collaborator.SprintsDelete,
+            (ProductPermissionScope.Licenses, ProductPermissionAction.View) => collaborator.LicensesView,
+            (ProductPermissionScope.Licenses, ProductPermissionAction.Create) => collaborator.LicensesCreate,
+            (ProductPermissionScope.Licenses, ProductPermissionAction.Edit) => collaborator.LicensesEdit,
+            (ProductPermissionScope.Licenses, ProductPermissionAction.Delete) => collaborator.LicensesDelete,
+            (ProductPermissionScope.Product, ProductPermissionAction.View) => collaborator.ProductView,
+            (ProductPermissionScope.Product, ProductPermissionAction.Create) => collaborator.ProductCreate,
+            (ProductPermissionScope.Product, ProductPermissionAction.Edit) => collaborator.ProductEdit,
+            (ProductPermissionScope.Product, ProductPermissionAction.Delete) => collaborator.ProductDelete,
+            _ => false
+        };
+    }
+
+    private static void ApplyPermissions(ProductCollaborator collaborator, ProductCollaboratorPermissionsDto permissions)
+    {
+        var normalized = NormalizePermissions(permissions);
+
+        collaborator.TasksView = normalized.Tasks.View;
+        collaborator.TasksCreate = normalized.Tasks.Create;
+        collaborator.TasksEdit = normalized.Tasks.Edit;
+        collaborator.TasksDelete = normalized.Tasks.Delete;
+
+        collaborator.SprintsView = normalized.Sprints.View;
+        collaborator.SprintsCreate = normalized.Sprints.Create;
+        collaborator.SprintsEdit = normalized.Sprints.Edit;
+        collaborator.SprintsDelete = normalized.Sprints.Delete;
+
+        collaborator.LicensesView = normalized.Licenses.View;
+        collaborator.LicensesCreate = normalized.Licenses.Create;
+        collaborator.LicensesEdit = normalized.Licenses.Edit;
+        collaborator.LicensesDelete = normalized.Licenses.Delete;
+
+        collaborator.ProductView = normalized.Product.View;
+        collaborator.ProductCreate = normalized.Product.Create;
+        collaborator.ProductEdit = normalized.Product.Edit;
+        collaborator.ProductDelete = normalized.Product.Delete;
+    }
+
+    private static ProductCollaboratorPermissionsDto NormalizePermissions(ProductCollaboratorPermissionsDto permissions) =>
+        new(
+            NormalizePermissionSet(permissions.Tasks),
+            NormalizePermissionSet(permissions.Sprints),
+            NormalizePermissionSet(permissions.Licenses),
+            NormalizePermissionSet(permissions.Product));
+
+    private static ProductCollaboratorPermissionsDto CreateFullAccessPermissions() =>
+        new(
+            new ProductPermissionSetDto(true, true, true, true),
+            new ProductPermissionSetDto(true, true, true, true),
+            new ProductPermissionSetDto(true, true, true, true),
+            new ProductPermissionSetDto(true, true, true, true));
+
+    private static ProductPermissionSetDto NormalizePermissionSet(ProductPermissionSetDto permissionSet)
+    {
+        var normalizedView = permissionSet.View || permissionSet.Create || permissionSet.Edit || permissionSet.Delete;
+        return permissionSet with { View = normalizedView };
+    }
+
+    private static ProductCollaboratorPermissionsDto MapPermissions(ProductCollaborator collaborator) =>
+        new(
+            new ProductPermissionSetDto(collaborator.TasksView, collaborator.TasksCreate, collaborator.TasksEdit, collaborator.TasksDelete),
+            new ProductPermissionSetDto(collaborator.SprintsView, collaborator.SprintsCreate, collaborator.SprintsEdit, collaborator.SprintsDelete),
+            new ProductPermissionSetDto(collaborator.LicensesView, collaborator.LicensesCreate, collaborator.LicensesEdit, collaborator.LicensesDelete),
+            new ProductPermissionSetDto(collaborator.ProductView, collaborator.ProductCreate, collaborator.ProductEdit, collaborator.ProductDelete));
+
     private ValueTask PublishBackofficeEventAsync(string eventType, object payload, CancellationToken cancellationToken) =>
         realtimeEventPublisher.PublishAsync(
             new RealtimeEvent(RealtimeChannels.Backoffice, eventType, DateTimeOffset.UtcNow, payload),
             cancellationToken);
+
+    private enum ProductPermissionScope
+    {
+        Tasks,
+        Sprints,
+        Licenses,
+        Product
+    }
+
+    private enum ProductPermissionAction
+    {
+        View,
+        Create,
+        Edit,
+        Delete
+    }
 }

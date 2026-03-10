@@ -211,6 +211,32 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
             }, cancellationToken);
         }
 
+        foreach (var collaboratorSeed in ProductCollaboratorSeeds)
+        {
+            await context.AddAsync(new ProductCollaborator
+            {
+                ProductId = collaboratorSeed.ProductId,
+                MemberId = collaboratorSeed.MemberId,
+                AddedDate = ParseDate(collaboratorSeed.AddedDate),
+                TasksView = collaboratorSeed.TasksView,
+                TasksCreate = collaboratorSeed.TasksCreate,
+                TasksEdit = collaboratorSeed.TasksEdit,
+                TasksDelete = collaboratorSeed.TasksDelete,
+                SprintsView = collaboratorSeed.SprintsView,
+                SprintsCreate = collaboratorSeed.SprintsCreate,
+                SprintsEdit = collaboratorSeed.SprintsEdit,
+                SprintsDelete = collaboratorSeed.SprintsDelete,
+                LicensesView = collaboratorSeed.LicensesView,
+                LicensesCreate = collaboratorSeed.LicensesCreate,
+                LicensesEdit = collaboratorSeed.LicensesEdit,
+                LicensesDelete = collaboratorSeed.LicensesDelete,
+                ProductView = collaboratorSeed.ProductView,
+                ProductCreate = collaboratorSeed.ProductCreate,
+                ProductEdit = collaboratorSeed.ProductEdit,
+                ProductDelete = collaboratorSeed.ProductDelete
+            }, cancellationToken);
+        }
+
         foreach (var sessionSeed in ProfileSessionSeeds)
         {
             await context.AddAsync(new ProfileSession
@@ -443,8 +469,17 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
     [
         new("TM-001", "Admin Master", "admin@myrati.com", "(11) 99876-5432", "Super Admin", "Ativo", "Tecnologia", "São Paulo, SP", true),
         new("TM-002", "Maria Santos", "maria@myrati.com", "(11) 97777-1000", "Admin", "Ativo", "Operações", "São Paulo, SP", false),
-        new("TM-003", "João Pereira", "joao@myrati.com", "(21) 98888-2000", "Viewer", "Ativo", "Suporte", "Rio de Janeiro, RJ", false),
-        new("TM-004", "Ana Costa", "ana@myrati.com", "(31) 96666-3000", "Admin", "Convite Pendente", "Comercial", "Belo Horizonte, MG", false)
+        new("TM-003", "João Pereira", "joao@myrati.com", "(21) 98888-2000", "Desenvolvedor", "Ativo", "Plataforma", "Rio de Janeiro, RJ", false),
+        new("TM-004", "Ana Costa", "ana@myrati.com", "(31) 96666-3000", "Admin", "Convite Pendente", "Comercial", "Belo Horizonte, MG", false),
+        new("TM-005", "Bruno Lima", "bruno@myrati.com", "(41) 95555-4000", "Desenvolvedor", "Ativo", "Produto", "Curitiba, PR", false)
+    ];
+
+    private static readonly ProductCollaboratorSeed[] ProductCollaboratorSeeds =
+    [
+        new("PRD-001", "TM-003", "2025-06-10", true, true, true, true, true, true, true, false, true, false, false, false, true, false, false, false),
+        new("PRD-001", "TM-005", "2025-08-20", true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false),
+        new("PRD-004", "TM-003", "2026-02-10", true, true, true, true, true, true, true, false, true, false, false, false, true, false, false, false),
+        new("PRD-004", "TM-005", "2026-02-12", true, true, true, false, true, false, false, false, true, false, false, false, true, false, false, false)
     ];
 
     private static readonly ProfileSessionSeed[] ProfileSessionSeeds =
@@ -595,6 +630,27 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
         string Department,
         string Location,
         bool IsPrimaryAccount);
+
+    private sealed record ProductCollaboratorSeed(
+        string ProductId,
+        string MemberId,
+        string AddedDate,
+        bool TasksView,
+        bool TasksCreate,
+        bool TasksEdit,
+        bool TasksDelete,
+        bool SprintsView,
+        bool SprintsCreate,
+        bool SprintsEdit,
+        bool SprintsDelete,
+        bool LicensesView,
+        bool LicensesCreate,
+        bool LicensesEdit,
+        bool LicensesDelete,
+        bool ProductView,
+        bool ProductCreate,
+        bool ProductEdit,
+        bool ProductDelete);
 
     private sealed record ProfileSessionSeed(string Id, string AdminUserId, string Location, string LastActive, bool IsCurrent);
 

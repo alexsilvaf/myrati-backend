@@ -3,6 +3,8 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
+using Myrati.API.Security;
+using Myrati.Application.Abstractions;
 using Microsoft.OpenApi;
 using Myrati.Application.DependencyInjection;
 using Myrati.Infrastructure.DependencyInjection;
@@ -20,6 +22,8 @@ var configuredUrls = builder.Configuration["ASPNETCORE_URLS"] ?? string.Empty;
 var hasHttpsEndpoint = configuredUrls.Contains("https://", StringComparison.OrdinalIgnoreCase);
 
 builder.Services.AddControllers();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -72,9 +76,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("BackofficeRead", policy =>
-        policy.RequireRole("Super Admin", "Admin", "Viewer"));
+        policy.RequireRole("Super Admin", "Admin", "Viewer", "Desenvolvedor"));
+    options.AddPolicy("ProductCreate", policy =>
+        policy.RequireRole("Super Admin", "Admin", "Desenvolvedor"));
     options.AddPolicy("BackofficeWrite", policy =>
         policy.RequireRole("Super Admin", "Admin"));
+    options.AddPolicy("ProductScopedWrite", policy =>
+        policy.RequireRole("Super Admin", "Admin", "Desenvolvedor"));
 });
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];

@@ -74,11 +74,12 @@ public sealed class SettingsAndProfileEndpointsTests(CustomWebApplicationFactory
             new CreateTeamMemberRequest(
                 $"Membro {suffix}",
                 $"membro-{suffix}@myrati.com",
-                "Viewer"));
+                "Desenvolvedor"));
         createTeamMemberResponse.EnsureSuccessStatusCode();
 
         var createdTeamMember = await createTeamMemberResponse.Content.ReadFromJsonAsync<TeamMemberDto>();
         Assert.NotNull(createdTeamMember);
+        Assert.Equal("Desenvolvedor", createdTeamMember.Role);
 
         var updateTeamMemberResponse = await client.PutAsJsonAsync(
             $"/api/v1/backoffice/settings/team-members/{createdTeamMember.Id}",

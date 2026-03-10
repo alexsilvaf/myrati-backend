@@ -114,6 +114,7 @@ public sealed class ProductsServiceTests
         TestRealtimeEventPublisher publisher) =>
         new(
             context,
+            new StubCurrentUserContext("TM-001", "admin@myrati.com", "Super Admin"),
             new CreateProductRequestValidator(),
             new UpdateProductRequestValidator(),
             new CreateLicenseRequestValidator(),
@@ -122,5 +123,18 @@ public sealed class ProductsServiceTests
             new UpdateProductSprintRequestValidator(),
             new CreateProductTaskRequestValidator(),
             new UpdateProductTaskRequestValidator(),
+            new AddProductCollaboratorRequestValidator(),
+            new UpdateProductCollaboratorRequestValidator(),
             publisher);
+
+    private sealed class StubCurrentUserContext(string userId, string email, string role) : Myrati.Application.Abstractions.ICurrentUserContext
+    {
+        public string? UserId => userId;
+
+        public string? Email => email;
+
+        public string? Role => role;
+
+        public bool IsAuthenticated => true;
+    }
 }

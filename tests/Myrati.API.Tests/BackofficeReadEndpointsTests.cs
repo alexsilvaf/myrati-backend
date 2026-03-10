@@ -66,6 +66,9 @@ public sealed class BackofficeReadEndpointsTests(CustomWebApplicationFactory fac
         Assert.NotNull(dashboard);
         Assert.NotEmpty(dashboard.MonthlyRevenue);
         Assert.NotEmpty(dashboard.RevenueByProduct);
+        Assert.NotEmpty(dashboard.Alerts);
+        Assert.NotEmpty(dashboard.ProductHealth);
+        Assert.NotEmpty(dashboard.TopClients);
 
         Assert.NotNull(products);
         Assert.NotEmpty(products);
@@ -73,6 +76,7 @@ public sealed class BackofficeReadEndpointsTests(CustomWebApplicationFactory fac
         Assert.NotNull(productDetail);
         Assert.Equal("PRD-001", productDetail.Id);
         Assert.NotEmpty(productDetail.Plans);
+        Assert.NotEmpty(productDetail.Collaborators);
         Assert.Equal("subscription", productDetail.SalesStrategy);
 
         Assert.NotNull(kanban);

@@ -67,6 +67,12 @@ public sealed class ApiExceptionMiddleware(
                 detail = exception.Message;
                 errors = null;
                 break;
+            case ForbiddenException:
+                status = StatusCodes.Status403Forbidden;
+                title = "Forbidden";
+                detail = exception.Message;
+                errors = null;
+                break;
             case DbUpdateException dbUpdateException when IsForeignKeyConstraintViolation(dbUpdateException):
                 status = StatusCodes.Status409Conflict;
                 title = "Conflict";

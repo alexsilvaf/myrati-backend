@@ -21,4 +21,7 @@ public interface IProductsService
     Task<ProductTaskDto> CreateTaskAsync(string productId, CreateProductTaskRequest request, CancellationToken cancellationToken = default);
     Task<ProductTaskDto> UpdateTaskAsync(string productId, string taskId, UpdateProductTaskRequest request, CancellationToken cancellationToken = default);
     Task DeleteTaskAsync(string productId, string taskId, CancellationToken cancellationToken = default);
+    Task<ProductCollaboratorDto> AddCollaboratorAsync(string productId, AddProductCollaboratorRequest request, CancellationToken cancellationToken = default);
+    Task<ProductCollaboratorDto> UpdateCollaboratorAsync(string productId, string memberId, UpdateProductCollaboratorRequest request, CancellationToken cancellationToken = default);
+    Task DeleteCollaboratorAsync(string productId, string memberId, CancellationToken cancellationToken = default);
 }

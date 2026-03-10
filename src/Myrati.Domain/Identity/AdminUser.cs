@@ -1,4 +1,5 @@
 using Myrati.Domain.Common;
+using Myrati.Domain.Products;
 
 namespace Myrati.Domain.Identity;
 
@@ -16,4 +17,5 @@ public sealed class AdminUser : Entity
 
     public ICollection<ProfileSession> Sessions { get; set; } = new List<ProfileSession>();
     public ICollection<ProfileActivity> Activities { get; set; } = new List<ProfileActivity>();
+    public ICollection<ProductCollaborator> ProductCollaborations { get; set; } = new List<ProductCollaborator>();
 }

@@ -2,6 +2,7 @@ using System.Data;
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Myrati.Domain.Identity;
 using Myrati.Domain.Products;
 using Myrati.Infrastructure.Persistence;
 
@@ -21,7 +22,9 @@ internal static class DatabaseSchemaCompatibilityUpgrader
         try
         {
             var productTable = GetTableName(context, typeof(Product));
+            var adminUserTable = GetTableName(context, typeof(AdminUser));
             var productPlanTable = GetTableName(context, typeof(ProductPlan));
+            var productCollaboratorTable = GetTableName(context, typeof(ProductCollaborator));
             var licenseTable = GetTableName(context, typeof(License));
             var sprintTable = GetTableName(context, typeof(ProductSprint));
             var taskTable = GetTableName(context, typeof(ProductTask));
@@ -77,6 +80,13 @@ internal static class DatabaseSchemaCompatibilityUpgrader
                 $"""ALTER TABLE "{licenseTable}" ADD COLUMN "RevenueSharePercent" numeric(5,2) NULL;""",
                 cancellationToken);
 
+            await EnsureProductCollaboratorTableAsync(
+                connection,
+                context.Database.ProviderName,
+                productTable,
+                adminUserTable,
+                productCollaboratorTable,
+                cancellationToken);
             await EnsureSprintTableAsync(connection, context.Database.ProviderName, productTable, sprintTable, cancellationToken);
             await EnsureTaskTableAsync(connection, context.Database.ProviderName, productTable, sprintTable, taskTable, cancellationToken);
         }
@@ -116,6 +126,79 @@ internal static class DatabaseSchemaCompatibilityUpgrader
 
         var sql = IsSqlite(providerName) ? sqliteSql : postgresSql;
         await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+    }
+
+    private static async Task EnsureProductCollaboratorTableAsync(
+        DbConnection connection,
+        string? providerName,
+        string productTable,
+        string adminUserTable,
+        string collaboratorTable,
+        CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, providerName, collaboratorTable, cancellationToken))
+        {
+            var sql = IsSqlite(providerName)
+                ? $"""
+CREATE TABLE "{collaboratorTable}" (
+    "ProductId" TEXT NOT NULL,
+    "MemberId" TEXT NOT NULL,
+    "AddedDate" TEXT NOT NULL,
+    "TasksView" INTEGER NOT NULL,
+    "TasksCreate" INTEGER NOT NULL,
+    "TasksEdit" INTEGER NOT NULL,
+    "TasksDelete" INTEGER NOT NULL,
+    "SprintsView" INTEGER NOT NULL,
+    "SprintsCreate" INTEGER NOT NULL,
+    "SprintsEdit" INTEGER NOT NULL,
+    "SprintsDelete" INTEGER NOT NULL,
+    "LicensesView" INTEGER NOT NULL,
+    "LicensesCreate" INTEGER NOT NULL,
+    "LicensesEdit" INTEGER NOT NULL,
+    "LicensesDelete" INTEGER NOT NULL,
+    "ProductView" INTEGER NOT NULL,
+    "ProductCreate" INTEGER NOT NULL,
+    "ProductEdit" INTEGER NOT NULL,
+    "ProductDelete" INTEGER NOT NULL,
+    CONSTRAINT "PK_{collaboratorTable}" PRIMARY KEY ("ProductId", "MemberId"),
+    CONSTRAINT "FK_{collaboratorTable}_{productTable}_ProductId" FOREIGN KEY ("ProductId") REFERENCES "{productTable}" ("Id") ON DELETE CASCADE,
+    CONSTRAINT "FK_{collaboratorTable}_{adminUserTable}_MemberId" FOREIGN KEY ("MemberId") REFERENCES "{adminUserTable}" ("Id") ON DELETE CASCADE
+);
+"""
+                : $"""
+CREATE TABLE "{collaboratorTable}" (
+    "ProductId" character varying(40) NOT NULL,
+    "MemberId" character varying(40) NOT NULL,
+    "AddedDate" date NOT NULL,
+    "TasksView" boolean NOT NULL,
+    "TasksCreate" boolean NOT NULL,
+    "TasksEdit" boolean NOT NULL,
+    "TasksDelete" boolean NOT NULL,
+    "SprintsView" boolean NOT NULL,
+    "SprintsCreate" boolean NOT NULL,
+    "SprintsEdit" boolean NOT NULL,
+    "SprintsDelete" boolean NOT NULL,
+    "LicensesView" boolean NOT NULL,
+    "LicensesCreate" boolean NOT NULL,
+    "LicensesEdit" boolean NOT NULL,
+    "LicensesDelete" boolean NOT NULL,
+    "ProductView" boolean NOT NULL,
+    "ProductCreate" boolean NOT NULL,
+    "ProductEdit" boolean NOT NULL,
+    "ProductDelete" boolean NOT NULL,
+    CONSTRAINT "PK_{collaboratorTable}" PRIMARY KEY ("ProductId", "MemberId"),
+    CONSTRAINT "FK_{collaboratorTable}_{productTable}_ProductId" FOREIGN KEY ("ProductId") REFERENCES "{productTable}" ("Id") ON DELETE CASCADE,
+    CONSTRAINT "FK_{collaboratorTable}_{adminUserTable}_MemberId" FOREIGN KEY ("MemberId") REFERENCES "{adminUserTable}" ("Id") ON DELETE CASCADE
+);
+""";
+
+            await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+        }
+
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{collaboratorTable}_MemberId" ON "{collaboratorTable}" ("MemberId");""",
+            cancellationToken);
     }
 
     private static async Task EnsureSprintTableAsync(

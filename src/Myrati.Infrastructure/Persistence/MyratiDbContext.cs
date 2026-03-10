@@ -17,6 +17,7 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     public DbSet<ProfileActivity> ProfileActivitiesSet => Set<ProfileActivity>();
     public DbSet<Product> ProductsSet => Set<Product>();
     public DbSet<ProductPlan> ProductPlansSet => Set<ProductPlan>();
+    public DbSet<ProductCollaborator> ProductCollaboratorsSet => Set<ProductCollaborator>();
     public DbSet<ProductSprint> ProductSprintsSet => Set<ProductSprint>();
     public DbSet<ProductTask> ProductTasksSet => Set<ProductTask>();
     public DbSet<License> LicensesSet => Set<License>();
@@ -37,6 +38,7 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     IQueryable<ProfileActivity> IMyratiDbContext.ProfileActivities => ProfileActivitiesSet;
     IQueryable<Product> IMyratiDbContext.Products => ProductsSet;
     IQueryable<ProductPlan> IMyratiDbContext.ProductPlans => ProductPlansSet;
+    IQueryable<ProductCollaborator> IMyratiDbContext.ProductCollaborators => ProductCollaboratorsSet;
     IQueryable<ProductSprint> IMyratiDbContext.ProductSprints => ProductSprintsSet;
     IQueryable<ProductTask> IMyratiDbContext.ProductTasks => ProductTasksSet;
     IQueryable<License> IMyratiDbContext.Licenses => LicensesSet;
@@ -82,6 +84,10 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
                 .WithOne(x => x.AdminUser)
                 .HasForeignKey(x => x.AdminUserId)
                 .OnDelete(DeleteBehavior.Cascade);
+            builder.HasMany(x => x.ProductCollaborations)
+                .WithOne(x => x.Member)
+                .HasForeignKey(x => x.MemberId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ProfileSession>(builder =>
@@ -126,6 +132,10 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
                 .WithOne(x => x.Product)
                 .HasForeignKey(x => x.ProductId)
                 .OnDelete(DeleteBehavior.Cascade);
+            builder.HasMany(x => x.Collaborators)
+                .WithOne(x => x.Product)
+                .HasForeignKey(x => x.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ProductPlan>(builder =>
@@ -137,6 +147,13 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
             builder.Property(x => x.DevelopmentCost).HasPrecision(18, 2);
             builder.Property(x => x.MaintenanceCost).HasPrecision(18, 2);
             builder.Property(x => x.RevenueSharePercent).HasPrecision(5, 2);
+        });
+
+        modelBuilder.Entity<ProductCollaborator>(builder =>
+        {
+            builder.HasKey(x => new { x.ProductId, x.MemberId });
+            builder.Property(x => x.MemberId).HasMaxLength(40);
+            builder.HasIndex(x => x.MemberId);
         });
 
         modelBuilder.Entity<ProductSprint>(builder =>

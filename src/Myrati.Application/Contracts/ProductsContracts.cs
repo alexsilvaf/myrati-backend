@@ -50,6 +50,33 @@ public sealed record ProductKanbanDto(
     IReadOnlyCollection<ProductTaskDto> Tasks,
     IReadOnlyCollection<string> AvailableAssignees);
 
+public sealed record ProductPermissionSetDto(
+    bool View,
+    bool Create,
+    bool Edit,
+    bool Delete);
+
+public sealed record ProductCollaboratorPermissionsDto(
+    ProductPermissionSetDto Tasks,
+    ProductPermissionSetDto Sprints,
+    ProductPermissionSetDto Licenses,
+    ProductPermissionSetDto Product);
+
+public sealed record ProductCollaboratorSummaryDto(
+    string MemberId,
+    string MemberName,
+    string MemberEmail,
+    string MemberRole);
+
+public sealed record ProductCollaboratorDto(
+    string ProductId,
+    string MemberId,
+    string MemberName,
+    string MemberEmail,
+    string MemberRole,
+    string AddedDate,
+    ProductCollaboratorPermissionsDto Permissions);
+
 public sealed record ProductSummaryDto(
     string Id,
     string Name,
@@ -62,7 +89,8 @@ public sealed record ProductSummaryDto(
     decimal MonthlyRevenue,
     string CreatedDate,
     string Version,
-    IReadOnlyCollection<ProductPlanDto> Plans);
+    IReadOnlyCollection<ProductPlanDto> Plans,
+    IReadOnlyCollection<ProductCollaboratorSummaryDto> Collaborators);
 
 public sealed record ProductDetailDto(
     string Id,
@@ -77,6 +105,7 @@ public sealed record ProductDetailDto(
     string CreatedDate,
     string Version,
     IReadOnlyCollection<ProductPlanDto> Plans,
+    IReadOnlyCollection<ProductCollaboratorDto> Collaborators,
     IReadOnlyCollection<LicenseDto> Licenses,
     ProductKanbanDto Kanban);
 
@@ -153,3 +182,10 @@ public sealed record UpdateProductTaskRequest(
     string Priority,
     string Assignee,
     IReadOnlyCollection<string> Tags);
+
+public sealed record AddProductCollaboratorRequest(
+    string MemberId,
+    ProductCollaboratorPermissionsDto Permissions);
+
+public sealed record UpdateProductCollaboratorRequest(
+    ProductCollaboratorPermissionsDto Permissions);

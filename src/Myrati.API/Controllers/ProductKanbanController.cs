@@ -17,7 +17,7 @@ public sealed class ProductKanbanController(IProductsService productsService) : 
         return Ok(response);
     }
 
-    [Authorize(Policy = "BackofficeWrite")]
+    [Authorize(Policy = "ProductScopedWrite")]
     [HttpPost("sprints")]
     public async Task<ActionResult<ProductSprintDto>> CreateSprint(
         string productId,
@@ -28,7 +28,7 @@ public sealed class ProductKanbanController(IProductsService productsService) : 
         return Ok(response);
     }
 
-    [Authorize(Policy = "BackofficeWrite")]
+    [Authorize(Policy = "ProductScopedWrite")]
     [HttpPut("sprints/{sprintId}")]
     public async Task<ActionResult<ProductSprintDto>> UpdateSprint(
         string productId,
@@ -40,7 +40,7 @@ public sealed class ProductKanbanController(IProductsService productsService) : 
         return Ok(response);
     }
 
-    [Authorize(Policy = "BackofficeWrite")]
+    [Authorize(Policy = "ProductScopedWrite")]
     [HttpDelete("sprints/{sprintId}")]
     public async Task<IActionResult> DeleteSprint(string productId, string sprintId, CancellationToken cancellationToken)
     {
@@ -48,7 +48,7 @@ public sealed class ProductKanbanController(IProductsService productsService) : 
         return NoContent();
     }
 
-    [Authorize(Policy = "BackofficeWrite")]
+    [Authorize(Policy = "ProductScopedWrite")]
     [HttpPost("tasks")]
     public async Task<ActionResult<ProductTaskDto>> CreateTask(
         string productId,
@@ -59,7 +59,7 @@ public sealed class ProductKanbanController(IProductsService productsService) : 
         return Ok(response);
     }
 
-    [Authorize(Policy = "BackofficeWrite")]
+    [Authorize(Policy = "ProductScopedWrite")]
     [HttpPut("tasks/{taskId}")]
     public async Task<ActionResult<ProductTaskDto>> UpdateTask(
         string productId,
@@ -71,7 +71,7 @@ public sealed class ProductKanbanController(IProductsService productsService) : 
         return Ok(response);
     }
 
-    [Authorize(Policy = "BackofficeWrite")]
+    [Authorize(Policy = "ProductScopedWrite")]
     [HttpDelete("tasks/{taskId}")]
     public async Task<IActionResult> DeleteTask(string productId, string taskId, CancellationToken cancellationToken)
     {

@@ -8,9 +8,14 @@ public static class ApiTestClientExtensions
 {
     public static async Task<AuthResponse> LoginAsAdminAsync(this HttpClient client)
     {
+        return await client.LoginAsync("admin@myrati.com", "Myrati@123");
+    }
+
+    public static async Task<AuthResponse> LoginAsync(this HttpClient client, string email, string password)
+    {
         var response = await client.PostAsJsonAsync(
             "/api/v1/auth/login",
-            new LoginRequest("admin@myrati.com", "Myrati@123"));
+            new LoginRequest(email, password));
 
         response.EnsureSuccessStatusCode();
 
