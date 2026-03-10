@@ -14,6 +14,8 @@ public interface IMyratiDbContext
     IQueryable<ProfileActivity> ProfileActivities { get; }
     IQueryable<Product> Products { get; }
     IQueryable<ProductPlan> ProductPlans { get; }
+    IQueryable<ProductSprint> ProductSprints { get; }
+    IQueryable<ProductTask> ProductTasks { get; }
     IQueryable<License> Licenses { get; }
     IQueryable<Client> Clients { get; }
     IQueryable<ConnectedUser> ConnectedUsers { get; }

@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Myrati.Application.Contracts;
+using Myrati.Infrastructure.Persistence;
 using Xunit;
 
 namespace Myrati.API.Tests;
@@ -32,5 +34,33 @@ public sealed class PublicEndpointsTests(CustomWebApplicationFactory factory)
             new ContactRequest("", "email-invalido", "", "", ""));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ContactEndpoint_WithValidPayload_PersistsLead()
+    {
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/public/contact",
+            new ContactRequest(
+                "Contato Teste",
+                "contato.teste@myrati.com",
+                "Empresa Teste",
+                "Comercial",
+                "Gostaria de conhecer a plataforma."));
+
+        response.EnsureSuccessStatusCode();
+
+        var payload = await response.Content.ReadFromJsonAsync<ContactResponse>();
+        Assert.NotNull(payload);
+        Assert.Contains("sucesso", payload.Message, StringComparison.OrdinalIgnoreCase);
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<MyratiDbContext>();
+
+        Assert.Contains(
+            dbContext.ContactLeadsSet,
+            lead => lead.Email == "contato.teste@myrati.com" && lead.Company == "Empresa Teste");
     }
 }

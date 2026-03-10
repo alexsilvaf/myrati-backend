@@ -24,11 +24,13 @@
 - [Execução local](#execução-local)
 - [Execução com Docker](#execução-com-docker)
 - [Autenticação e autorização](#autenticação-e-autorização)
+- [Automação por agentes](#automação-por-agentes)
 - [SSE e tempo real](#sse-e-tempo-real)
 - [Rotas da API](#rotas-da-api)
   - [Auth](#auth)
   - [Dashboard](#dashboard)
   - [Products](#products)
+  - [Kanban por produto](#kanban-por-produto)
   - [Licenses](#licenses)
   - [Clients](#clients)
   - [Users](#users)
@@ -53,7 +55,8 @@ O backend suporta todos os módulos expostos no frontend da Myrati:
 |--------|-----------|
 | **Autenticação** | Login JWT para administradores |
 | **Dashboard** | KPIs, receita mensal e atividades recentes |
-| **Catálogo** | Produtos, planos e gestão de licenças |
+| **Catálogo** | Produtos, estratégias de venda, planos e gestão de licenças |
+| **Desenvolvimento** | Kanban por produto com sprints e tarefas |
 | **Clientes** | CRUD com usuários e licenças vinculadas |
 | **Usuários** | Diretório de usuários conectados |
 | **Configurações** | Empresa, equipe, preferências e chaves de API |
@@ -323,6 +326,99 @@ Cliente  ──Authorization: Bearer {token}──>  Rotas autenticadas
 Cliente  ──?access_token={jwt}──>  Stream SSE autenticado
 ```
 
+> O mesmo fluxo é o contrato oficial para automação por agentes. O backend não aceita mutação anônima em catálogo, licenças ou kanban.
+
+---
+
+## Automação por agentes
+
+O backend foi preparado para que um agente como Codex ou Claude opere o módulo de produtos e o kanban de desenvolvimento com segurança, sempre usando credenciais válidas e um token JWT de curta duração.
+
+### Fluxo recomendado
+
+1. O agente recebe do operador humano um usuário e senha válidos.
+2. O agente faz `POST /api/v1/auth/login`.
+3. O agente guarda o `accessToken` retornado.
+4. O agente usa `Authorization: Bearer {token}` em todas as chamadas de backoffice.
+5. O agente executa CRUD de produtos, licenças, sprints e tarefas conforme o papel do usuário.
+
+### Escopo disponível para agentes
+
+- Criar, listar, editar e excluir produtos
+- Criar, editar, suspender, reativar e excluir licenças
+- Ler o detalhe completo do produto, incluindo kanban
+- Criar, editar e excluir sprints
+- Criar, editar, mover entre colunas e excluir tarefas
+
+### Restrições de segurança
+
+- `Viewer` não pode alterar catálogo nem kanban
+- O kanban só aceita mutações em produtos com status `Em desenvolvimento`
+- Exclusão de sprint com tarefas vinculadas retorna `409 Conflict`
+- Exclusão de produto com licenças vinculadas retorna `409 Conflict`
+
+### Exemplo de sequência para um agente
+
+```bash
+# 1. Login
+curl -X POST http://localhost:5118/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@myrati.com",
+    "password": "Myrati@123"
+  }'
+
+# 2. Criar um produto em desenvolvimento
+curl -X POST http://localhost:5118/api/v1/backoffice/products \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <JWT>" \
+  -d '{
+    "name": "Myrati HRM",
+    "description": "Gestão de RH e folha",
+    "category": "RH",
+    "status": "Em desenvolvimento",
+    "salesStrategy": "development",
+    "version": "0.9.0",
+    "plans": [
+      {
+        "name": "Implantação Base",
+        "maxUsers": 50,
+        "monthlyPrice": 0,
+        "developmentCost": 15000,
+        "maintenanceCost": 1200,
+        "revenueSharePercent": null
+      }
+    ]
+  }'
+
+# 3. Criar uma sprint
+curl -X POST http://localhost:5118/api/v1/backoffice/products/PRD-004/sprints \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <JWT>" \
+  -d '{
+    "name": "Sprint 1",
+    "startDate": "2026-03-09",
+    "endDate": "2026-03-23",
+    "status": "Ativa"
+  }'
+
+# 4. Criar uma tarefa
+curl -X POST http://localhost:5118/api/v1/backoffice/products/PRD-004/tasks \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <JWT>" \
+  -d '{
+    "sprintId": "SPR-001",
+    "title": "Modelar tela de onboarding",
+    "description": "Criar a primeira versão da jornada inicial",
+    "column": "todo",
+    "priority": "high",
+    "assignee": "Admin Master",
+    "tags": ["frontend", "ux"]
+  }'
+```
+
+Esse fluxo já cobre o cenário descrito em prompts como: _"Conecte no Myrati com o usuário X e senha Y, vamos desenvolver o produto Z e crie as tarefas que eu indicar."_ O agente autentica, obtém o token e usa apenas rotas autorizadas.
+
 ---
 
 ## SSE e tempo real
@@ -357,6 +453,13 @@ Cliente  ──?access_token={jwt}──>  Stream SSE autenticado
 | `product.created` | Produto criado |
 | `product.updated` | Produto atualizado |
 | `product.deleted` | Produto removido |
+| `sprint.created` | Sprint criada |
+| `sprint.updated` | Sprint atualizada |
+| `sprint.deleted` | Sprint removida |
+| `task.created` | Tarefa criada |
+| `task.updated` | Tarefa atualizada |
+| `task.moved` | Tarefa movida no kanban |
+| `task.deleted` | Tarefa removida |
 | `client.created` | Cliente criado |
 | `client.updated` | Cliente atualizado |
 | `license.created` | Licença criada |
@@ -494,9 +597,19 @@ Retorna os KPIs, receitas mensais, receita por produto e atividades recentes.
 
 ### Products
 
+Produtos agora expõem a estratégia comercial do item e, para telas de detalhe, o snapshot completo do kanban.
+
+### Estratégias de venda suportadas
+
+| `salesStrategy` | Uso | Regras de plano |
+|-----------------|-----|-----------------|
+| `subscription` | Licenciamento mensal tradicional | `monthlyPrice > 0` |
+| `development` | Projeto sob encomenda + manutenção | `developmentCost > 0` e `maintenanceCost > 0` |
+| `revenue_share` | Manutenção + participação no faturamento | `maintenanceCost > 0` e `revenueSharePercent > 0` |
+
 #### `GET /api/v1/backoffice/products`
 
-Lista todos os produtos com seus planos e métricas.
+Lista os produtos com métricas, estratégia de venda e planos.
 
 - **Acesso:** `BackofficeRead`
 - **Header:** `Authorization: Bearer {token}`
@@ -506,90 +619,94 @@ Lista todos os produtos com seus planos e métricas.
 ```json
 [
   {
-    "id": "PRD-001",
-    "name": "Myrati ERP",
-    "description": "Sistema completo de gestão empresarial",
-    "category": "ERP",
-    "status": "Ativo",
-    "totalLicenses": 85,
-    "activeLicenses": 72,
-    "monthlyRevenue": 28500.00,
-    "createdDate": "2025-01-15",
-    "version": "2.4.1",
+    "id": "PRD-004",
+    "name": "Myrati HRM",
+    "description": "Plataforma de RH em desenvolvimento",
+    "category": "RH",
+    "status": "Em desenvolvimento",
+    "salesStrategy": "development",
+    "totalLicenses": 2,
+    "activeLicenses": 0,
+    "monthlyRevenue": 0,
+    "createdDate": "2026-03-01",
+    "version": "0.9.0",
     "plans": [
       {
         "id": "PLN-001",
-        "name": "Starter",
-        "maxUsers": 5,
-        "monthlyPrice": 199.90
-      },
-      {
-        "id": "PLN-002",
-        "name": "Professional",
-        "maxUsers": 25,
-        "monthlyPrice": 499.90
+        "name": "Implantação Base",
+        "maxUsers": 50,
+        "monthlyPrice": 0,
+        "developmentCost": 15000,
+        "maintenanceCost": 1200,
+        "revenueSharePercent": null
       }
     ]
   }
 ]
 ```
 
----
-
 #### `GET /api/v1/backoffice/products/{productId}`
 
-Retorna o detalhe de um produto, incluindo planos e licenças vinculadas.
+Retorna o detalhe do produto, incluindo licenças e o snapshot do kanban.
 
 - **Acesso:** `BackofficeRead`
 - **Header:** `Authorization: Bearer {token}`
-- **Path param:** `productId` (string) — ex: `PRD-001`
 
 **Response `200 OK`:**
 
 ```json
 {
-  "id": "PRD-001",
-  "name": "Myrati ERP",
-  "description": "Sistema completo de gestão empresarial",
-  "category": "ERP",
-  "status": "Ativo",
-  "totalLicenses": 85,
-  "activeLicenses": 72,
-  "monthlyRevenue": 28500.00,
-  "createdDate": "2025-01-15",
-  "version": "2.4.1",
+  "id": "PRD-004",
+  "name": "Myrati HRM",
+  "status": "Em desenvolvimento",
+  "salesStrategy": "development",
   "plans": [
     {
       "id": "PLN-001",
-      "name": "Starter",
-      "maxUsers": 5,
-      "monthlyPrice": 199.90
+      "name": "Implantação Base",
+      "maxUsers": 50,
+      "monthlyPrice": 0,
+      "developmentCost": 15000,
+      "maintenanceCost": 1200,
+      "revenueSharePercent": null
     }
   ],
-  "licenses": [
-    {
-      "id": "LIC-001",
-      "clientId": "CLI-001",
-      "clientName": "Empresa ABC Ltda",
-      "productId": "PRD-001",
-      "productName": "Myrati ERP",
-      "plan": "Professional",
-      "maxUsers": 25,
-      "activeUsers": 18,
-      "status": "Ativa",
-      "startDate": "2025-02-01",
-      "expiryDate": "2026-02-01",
-      "monthlyValue": 499.90
-    }
-  ]
+  "licenses": [],
+  "kanban": {
+    "sprints": [
+      {
+        "id": "SPR-001",
+        "productId": "PRD-004",
+        "name": "Sprint 1",
+        "startDate": "2026-03-09",
+        "endDate": "2026-03-23",
+        "status": "Ativa"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "TSK-001",
+        "productId": "PRD-004",
+        "sprintId": "SPR-001",
+        "title": "Criar onboarding",
+        "description": "Primeira etapa do fluxo inicial",
+        "column": "todo",
+        "priority": "high",
+        "assignee": "Admin Master",
+        "tags": ["frontend", "ux"],
+        "createdDate": "2026-03-09"
+      }
+    ],
+    "availableAssignees": ["Admin Master", "Maria Santos"]
+  }
 }
 ```
 
----
+> Para produtos que não estão em `Em desenvolvimento`, o campo `kanban` volta vazio.
 
 #### `POST /api/v1/backoffice/products`
 
-Cria um novo produto com seus planos.
+Cria um produto com planos e estratégia de venda.
 
 - **Acesso:** `BackofficeWrite`
 - **Header:** `Authorization: Bearer {token}`
@@ -598,170 +715,176 @@ Cria um novo produto com seus planos.
 
 ```json
 {
-  "name": "Myrati Analytics",
-  "description": "Plataforma de análise de dados e business intelligence",
-  "category": "Analytics",
+  "name": "Myrati HRM",
+  "description": "Plataforma de RH e folha",
+  "category": "RH",
   "status": "Em desenvolvimento",
-  "version": "1.0.0",
+  "salesStrategy": "development",
+  "version": "0.9.0",
   "plans": [
     {
-      "name": "Basic",
-      "maxUsers": 3,
-      "monthlyPrice": 149.90
-    },
-    {
-      "name": "Enterprise",
+      "name": "Implantação Base",
       "maxUsers": 50,
-      "monthlyPrice": 899.90
+      "monthlyPrice": 0,
+      "developmentCost": 15000,
+      "maintenanceCost": 1200,
+      "revenueSharePercent": null
     }
   ]
 }
 ```
 
-| Campo | Tipo | Obrigatório | Validação |
-|-------|------|:-----------:|-----------|
-| `name` | string | Sim | Máx. 120 caracteres |
-| `description` | string | Sim | Máx. 500 caracteres |
-| `category` | string | Sim | Máx. 120 caracteres |
-| `status` | string | Sim | `Ativo`, `Inativo` ou `Em desenvolvimento` |
-| `version` | string | Sim | Máx. 30 caracteres |
-| `plans` | array | Não | Lista de planos (pode ser vazia) |
-| `plans[].name` | string | Sim | Máx. 60 caracteres |
-| `plans[].maxUsers` | int | Sim | Maior que 0 |
-| `plans[].monthlyPrice` | decimal | Sim | Maior ou igual a 0 |
+| Campo | Tipo | Obrigatório | Regra |
+|-------|------|:-----------:|-------|
+| `name` | string | Sim | Máx. 120 |
+| `description` | string | Sim | Máx. 500 |
+| `category` | string | Sim | Máx. 120 |
+| `status` | string | Sim | `Ativo`, `Inativo`, `Em desenvolvimento` |
+| `salesStrategy` | string | Sim | `subscription`, `development`, `revenue_share` |
+| `version` | string | Sim | Máx. 30 |
+| `plans` | array | Sim | Pelo menos 1 plano |
+| `plans[].name` | string | Sim | Máx. 60 |
+| `plans[].maxUsers` | int | Sim | `> 0` |
+| `plans[].monthlyPrice` | decimal | Sim | `>= 0` |
+| `plans[].developmentCost` | decimal | Condicional | Obrigatório em `development` |
+| `plans[].maintenanceCost` | decimal | Condicional | Obrigatório em `development` e `revenue_share` |
+| `plans[].revenueSharePercent` | decimal | Condicional | Obrigatório em `revenue_share` |
 
-**Response `201 Created`:** retorna o `ProductDetailDto` completo (mesmo formato do GET por ID).
-
----
+**Response `201 Created`:** retorna `ProductDetailDto`.
 
 #### `PUT /api/v1/backoffice/products/{productId}`
 
-Atualiza um produto existente.
+Atualiza o produto, a estratégia de venda e todos os planos.
 
 - **Acesso:** `BackofficeWrite`
 - **Header:** `Authorization: Bearer {token}`
-- **Path param:** `productId` (string) — ex: `PRD-001`
 
-**Request body:** mesmo formato do POST de criação.
+**Request body:** mesmo contrato do `POST /products`.
 
-**Response `200 OK`:** retorna o `ProductDetailDto` atualizado.
-
----
+**Response `200 OK`:** retorna `ProductDetailDto`.
 
 #### `DELETE /api/v1/backoffice/products/{productId}`
 
-Remove um produto que não possua licenças vinculadas.
+Remove um produto.
 
 - **Acesso:** `BackofficeWrite`
 - **Header:** `Authorization: Bearer {token}`
-- **Path param:** `productId` (string) — ex: `PRD-001`
 
 **Response `204 No Content`**
 
-> Retorna `409 Conflict` se o produto possuir licenças vinculadas.
+Regras:
+
+- retorna `409 Conflict` se o produto ainda possuir licenças vinculadas
+- usuários conectados, tarefas, sprints e planos do produto são removidos junto com o item
+
+---
+
+### Kanban por produto
+
+O kanban fica em rotas de backoffice autenticadas e só aceita mutações quando o produto está com status `Em desenvolvimento`.
+
+| Método | Rota | Política | Uso |
+|--------|------|----------|-----|
+| `GET` | `/api/v1/backoffice/products/{productId}/kanban` | `BackofficeRead` | Lê o quadro completo |
+| `POST` | `/api/v1/backoffice/products/{productId}/sprints` | `BackofficeWrite` | Cria sprint |
+| `PUT` | `/api/v1/backoffice/products/{productId}/sprints/{sprintId}` | `BackofficeWrite` | Atualiza sprint |
+| `DELETE` | `/api/v1/backoffice/products/{productId}/sprints/{sprintId}` | `BackofficeWrite` | Exclui sprint |
+| `POST` | `/api/v1/backoffice/products/{productId}/tasks` | `BackofficeWrite` | Cria tarefa |
+| `PUT` | `/api/v1/backoffice/products/{productId}/tasks/{taskId}` | `BackofficeWrite` | Atualiza ou move tarefa |
+| `DELETE` | `/api/v1/backoffice/products/{productId}/tasks/{taskId}` | `BackofficeWrite` | Exclui tarefa |
+
+#### Exemplo de criação de sprint
+
+```json
+{
+  "name": "Sprint 2",
+  "startDate": "2026-03-24",
+  "endDate": "2026-04-07",
+  "status": "Planejada"
+}
+```
+
+#### Exemplo de criação ou atualização de tarefa
+
+```json
+{
+  "sprintId": "SPR-002",
+  "title": "Implementar fluxo de autenticação",
+  "description": "Conectar login do produto ao backend",
+  "column": "in_progress",
+  "priority": "critical",
+  "assignee": "Admin Master",
+  "tags": ["backend", "auth"]
+}
+```
+
+Regras importantes:
+
+- `status` da sprint: `Planejada`, `Ativa`, `Concluída`
+- `column` da tarefa: `backlog`, `todo`, `in_progress`, `review`, `done`
+- `priority` da tarefa: `low`, `medium`, `high`, `critical`
+- só pode existir uma sprint `Ativa` por produto
+- excluir sprint com tarefas vinculadas retorna `409 Conflict`
+- tentar editar kanban de produto fora de desenvolvimento retorna `409 Conflict`
 
 ---
 
 ### Licenses
 
-#### `POST /api/v1/backoffice/products/{productId}/licenses`
+As licenças continuam sendo geridas no módulo de produtos, mas o payload agora suporta os cenários de desenvolvimento e participação no faturamento.
 
-Cria uma nova licença vinculada a um produto.
+| Método | Rota | Política | Uso |
+|--------|------|----------|-----|
+| `POST` | `/api/v1/backoffice/products/{productId}/licenses` | `BackofficeWrite` | Cria licença |
+| `PUT` | `/api/v1/backoffice/licenses/{licenseId}` | `BackofficeWrite` | Atualiza licença |
+| `POST` | `/api/v1/backoffice/licenses/{licenseId}/suspend` | `BackofficeWrite` | Suspende |
+| `POST` | `/api/v1/backoffice/licenses/{licenseId}/reactivate` | `BackofficeWrite` | Reativa |
+| `DELETE` | `/api/v1/backoffice/licenses/{licenseId}` | `BackofficeWrite` | Exclui |
 
-- **Acesso:** `BackofficeWrite`
-- **Header:** `Authorization: Bearer {token}`
-- **Path param:** `productId` (string) — ex: `PRD-001`
-
-**Request body:**
+#### Contrato de criação e edição
 
 ```json
 {
   "clientId": "CLI-003",
-  "plan": "Professional",
-  "monthlyValue": 499.90,
+  "plan": "Implantação Base",
+  "monthlyValue": 1200,
+  "developmentCost": 15000,
+  "revenueSharePercent": null,
   "startDate": "2026-04-01",
   "expiryDate": "2027-04-01"
 }
 ```
 
-| Campo | Tipo | Obrigatório | Validação |
-|-------|------|:-----------:|-----------|
-| `clientId` | string | Sim | ID válido de cliente existente |
-| `plan` | string | Sim | Máx. 60 caracteres |
-| `monthlyValue` | decimal | Sim | Maior que 0 |
-| `startDate` | string | Sim | Formato de data (ex: `2026-04-01`) |
-| `expiryDate` | string | Sim | Formato de data, deve ser posterior a `startDate` |
+| Campo | Tipo | Obrigatório | Regra |
+|-------|------|:-----------:|-------|
+| `clientId` | string | Sim | Cliente existente e ativo |
+| `plan` | string | Sim | Plano pertencente ao produto |
+| `monthlyValue` | decimal | Sim | `> 0` |
+| `developmentCost` | decimal | Condicional | Necessário em produtos `development` se o plano exigir |
+| `revenueSharePercent` | decimal | Condicional | Necessário em produtos `revenue_share` se o plano exigir |
+| `startDate` | string | Sim | ISO date |
+| `expiryDate` | string | Sim | ISO date maior que `startDate` |
 
-**Response `201 Created`:**
+**Response `200 OK`:**
 
 ```json
 {
   "id": "LIC-042",
   "clientId": "CLI-003",
   "clientName": "Tech Solutions SA",
-  "productId": "PRD-001",
-  "productName": "Myrati ERP",
-  "plan": "Professional",
-  "maxUsers": 25,
+  "productId": "PRD-004",
+  "productName": "Myrati HRM",
+  "plan": "Implantação Base",
+  "maxUsers": 50,
   "activeUsers": 0,
   "status": "Ativa",
   "startDate": "2026-04-01",
   "expiryDate": "2027-04-01",
-  "monthlyValue": 499.90
+  "monthlyValue": 1200,
+  "developmentCost": 15000,
+  "revenueSharePercent": null
 }
 ```
-
----
-
-#### `PUT /api/v1/backoffice/licenses/{licenseId}`
-
-Atualiza uma licença existente.
-
-- **Acesso:** `BackofficeWrite`
-- **Header:** `Authorization: Bearer {token}`
-- **Path param:** `licenseId` (string) — ex: `LIC-042`
-
-**Request body:** mesmo formato do POST de criação de licença.
-
-**Response `200 OK`:** retorna o `LicenseDto` atualizado.
-
----
-
-#### `POST /api/v1/backoffice/licenses/{licenseId}/suspend`
-
-Suspende uma licença ativa.
-
-- **Acesso:** `BackofficeWrite`
-- **Header:** `Authorization: Bearer {token}`
-- **Path param:** `licenseId` (string) — ex: `LIC-042`
-- **Request body:** nenhum
-
-**Response `200 OK`:** retorna o `LicenseDto` com `status: "Suspensa"`.
-
----
-
-#### `POST /api/v1/backoffice/licenses/{licenseId}/reactivate`
-
-Reativa uma licença suspensa.
-
-- **Acesso:** `BackofficeWrite`
-- **Header:** `Authorization: Bearer {token}`
-- **Path param:** `licenseId` (string) — ex: `LIC-042`
-- **Request body:** nenhum
-
-**Response `200 OK`:** retorna o `LicenseDto` com `status: "Ativa"`.
-
----
-
-#### `DELETE /api/v1/backoffice/licenses/{licenseId}`
-
-Exclui uma licença.
-
-- **Acesso:** `BackofficeWrite`
-- **Header:** `Authorization: Bearer {token}`
-- **Path param:** `licenseId` (string) — ex: `LIC-042`
-
-**Response `204 No Content`**
 
 ---
 
@@ -1580,7 +1703,11 @@ Health check da aplicação.
 |----------|----------------|
 | Produto | `Ativo`, `Inativo`, `Em desenvolvimento` |
 | Cliente | `Ativo`, `Inativo` |
-| Licença | `Ativa`, `Suspensa` |
+| Licença | `Ativa`, `Pendente`, `Suspensa`, `Expirada` |
+| Estratégia de venda | `subscription`, `development`, `revenue_share` |
+| Sprint | `Planejada`, `Ativa`, `Concluída` |
+| Coluna do kanban | `backlog`, `todo`, `in_progress`, `review`, `done` |
+| Prioridade de tarefa | `low`, `medium`, `high`, `critical` |
 | Membro da equipe (role) | `Super Admin`, `Admin`, `Viewer` |
 | Membro da equipe (status) | `Ativo`, `Convite Pendente` |
 | Tipo de documento | `CPF`, `CNPJ` |
@@ -1604,6 +1731,9 @@ Health check da aplicação.
 | `label` (API key) | 80 caracteres |
 | `subject` (contato) | 120 caracteres |
 | `message` (contato) | 2000 caracteres |
+| `title` (tarefa) | 160 caracteres |
+| `description` (tarefa) | 1000 caracteres |
+| `tag` (tarefa) | 30 caracteres por item |
 
 ### Restrições numéricas
 
@@ -1611,6 +1741,9 @@ Health check da aplicação.
 |-------|-------|
 | `maxUsers` (plano) | Maior que 0 |
 | `monthlyPrice` (plano) | Maior ou igual a 0 |
+| `developmentCost` (plano/licença) | Maior que 0 quando informado |
+| `maintenanceCost` (plano) | Maior que 0 quando exigido pela estratégia |
+| `revenueSharePercent` (plano/licença) | Entre 0 e 100 |
 | `monthlyValue` (licença) | Maior que 0 |
 
 ### Outras regras
@@ -1620,6 +1753,11 @@ Health check da aplicação.
 - `newPassword` na troca de senha: mínimo 8 caracteres
 - `confirmPassword` deve ser igual a `newPassword`
 - `expiryDate` da licença deve ser posterior a `startDate`
+- `endDate` da sprint deve ser posterior a `startDate`
+- produtos `subscription` exigem `monthlyPrice > 0` em todos os planos
+- produtos `development` exigem `developmentCost` e `maintenanceCost` em todos os planos
+- produtos `revenue_share` exigem `maintenanceCost` e `revenueSharePercent` em todos os planos
+- o kanban só aceita escrita quando o produto está em `Em desenvolvimento`
 
 ---
 
@@ -1634,7 +1772,7 @@ Health check da aplicação.
 | `401 Unauthorized` | Não autenticado | Token ausente ou inválido |
 | `403 Forbidden` | Sem permissão | Papel insuficiente para a política exigida |
 | `404 Not Found` | Recurso não existe | ID inválido ou inexistente |
-| `409 Conflict` | Conflito de estado | Deletar produto com licenças ou cliente com licenças ativas |
+| `409 Conflict` | Conflito de estado | Produto com licenças, sprint com tarefas, kanban fora de produto em desenvolvimento |
 | `429 Too Many Requests` | Rate limit excedido | Mais de 20 req/min por IP em rotas públicas |
 | `500 Internal Server Error` | Erro interno | Falha não tratada no servidor |
 
@@ -1653,6 +1791,8 @@ xUnit · Moq · WebApplicationFactory · SQLite in-memory · Coverlet
 - Testes de autenticação e autorização
 - Testes de endpoints públicos
 - Testes de SSE com leitura de `text/event-stream`
+- Testes de ciclo de vida de produto, licença e kanban
+- Testes de conflitos de negócio com respostas amigáveis (`409`)
 
 ### Comandos
 

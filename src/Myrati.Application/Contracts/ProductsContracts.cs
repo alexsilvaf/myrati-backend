@@ -1,6 +1,13 @@
 namespace Myrati.Application.Contracts;
 
-public sealed record ProductPlanDto(string Id, string Name, int MaxUsers, decimal MonthlyPrice);
+public sealed record ProductPlanDto(
+    string Id,
+    string Name,
+    int MaxUsers,
+    decimal MonthlyPrice,
+    decimal? DevelopmentCost,
+    decimal? MaintenanceCost,
+    decimal? RevenueSharePercent);
 
 public sealed record LicenseDto(
     string Id,
@@ -14,7 +21,34 @@ public sealed record LicenseDto(
     string Status,
     string StartDate,
     string ExpiryDate,
-    decimal MonthlyValue);
+    decimal MonthlyValue,
+    decimal? DevelopmentCost,
+    decimal? RevenueSharePercent);
+
+public sealed record ProductSprintDto(
+    string Id,
+    string ProductId,
+    string Name,
+    string StartDate,
+    string EndDate,
+    string Status);
+
+public sealed record ProductTaskDto(
+    string Id,
+    string ProductId,
+    string SprintId,
+    string Title,
+    string Description,
+    string Column,
+    string Priority,
+    string Assignee,
+    IReadOnlyCollection<string> Tags,
+    string CreatedDate);
+
+public sealed record ProductKanbanDto(
+    IReadOnlyCollection<ProductSprintDto> Sprints,
+    IReadOnlyCollection<ProductTaskDto> Tasks,
+    IReadOnlyCollection<string> AvailableAssignees);
 
 public sealed record ProductSummaryDto(
     string Id,
@@ -22,6 +56,7 @@ public sealed record ProductSummaryDto(
     string Description,
     string Category,
     string Status,
+    string SalesStrategy,
     int TotalLicenses,
     int ActiveLicenses,
     decimal MonthlyRevenue,
@@ -35,21 +70,30 @@ public sealed record ProductDetailDto(
     string Description,
     string Category,
     string Status,
+    string SalesStrategy,
     int TotalLicenses,
     int ActiveLicenses,
     decimal MonthlyRevenue,
     string CreatedDate,
     string Version,
     IReadOnlyCollection<ProductPlanDto> Plans,
-    IReadOnlyCollection<LicenseDto> Licenses);
+    IReadOnlyCollection<LicenseDto> Licenses,
+    ProductKanbanDto Kanban);
 
-public sealed record UpsertProductPlanRequest(string Name, int MaxUsers, decimal MonthlyPrice);
+public sealed record UpsertProductPlanRequest(
+    string Name,
+    int MaxUsers,
+    decimal MonthlyPrice,
+    decimal? DevelopmentCost,
+    decimal? MaintenanceCost,
+    decimal? RevenueSharePercent);
 
 public sealed record CreateProductRequest(
     string Name,
     string Description,
     string Category,
     string Status,
+    string SalesStrategy,
     string Version,
     IReadOnlyCollection<UpsertProductPlanRequest> Plans);
 
@@ -58,6 +102,7 @@ public sealed record UpdateProductRequest(
     string Description,
     string Category,
     string Status,
+    string SalesStrategy,
     string Version,
     IReadOnlyCollection<UpsertProductPlanRequest> Plans);
 
@@ -65,6 +110,8 @@ public sealed record CreateLicenseRequest(
     string ClientId,
     string Plan,
     decimal MonthlyValue,
+    decimal? DevelopmentCost,
+    decimal? RevenueSharePercent,
     string StartDate,
     string ExpiryDate);
 
@@ -72,5 +119,37 @@ public sealed record UpdateLicenseRequest(
     string ClientId,
     string Plan,
     decimal MonthlyValue,
+    decimal? DevelopmentCost,
+    decimal? RevenueSharePercent,
     string StartDate,
     string ExpiryDate);
+
+public sealed record CreateProductSprintRequest(
+    string Name,
+    string StartDate,
+    string EndDate,
+    string Status);
+
+public sealed record UpdateProductSprintRequest(
+    string Name,
+    string StartDate,
+    string EndDate,
+    string Status);
+
+public sealed record CreateProductTaskRequest(
+    string SprintId,
+    string Title,
+    string Description,
+    string Column,
+    string Priority,
+    string Assignee,
+    IReadOnlyCollection<string> Tags);
+
+public sealed record UpdateProductTaskRequest(
+    string SprintId,
+    string Title,
+    string Description,
+    string Column,
+    string Priority,
+    string Assignee,
+    IReadOnlyCollection<string> Tags);

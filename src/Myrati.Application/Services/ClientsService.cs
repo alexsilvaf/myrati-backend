@@ -240,7 +240,9 @@ public sealed class ClientsService(
                     license.Status,
                     license.StartDate.ToIsoDate(),
                     license.ExpiryDate.ToIsoDate(),
-                    license.MonthlyValue);
+                    license.MonthlyValue,
+                    license.DevelopmentCost,
+                    license.RevenueSharePercent);
             }).ToArray());
     }
 

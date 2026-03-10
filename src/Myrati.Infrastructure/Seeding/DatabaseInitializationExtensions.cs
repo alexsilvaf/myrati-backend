@@ -13,6 +13,7 @@ public static class DatabaseInitializationExtensions
         var seeder = scope.ServiceProvider.GetRequiredService<MyratiDbSeeder>();
 
         await context.Database.EnsureCreatedAsync(cancellationToken);
+        await DatabaseSchemaCompatibilityUpgrader.ApplyAsync(context, cancellationToken);
         await seeder.SeedAsync(context, cancellationToken);
     }
 }

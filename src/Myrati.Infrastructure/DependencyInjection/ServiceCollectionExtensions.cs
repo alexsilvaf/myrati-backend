@@ -42,6 +42,12 @@ public static class ServiceCollectionExtensions
 
     private static string ResolveConnectionString(IConfiguration configuration)
     {
+        var sqliteOverride = configuration["Testing:SqliteConnectionString"];
+        if (!string.IsNullOrWhiteSpace(sqliteOverride))
+        {
+            return sqliteOverride;
+        }
+
         var connectionString = configuration.GetConnectionString("MyratiDb")
             ?? throw new InvalidOperationException("ConnectionStrings:MyratiDb não configurada.");
 

@@ -17,6 +17,8 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     public DbSet<ProfileActivity> ProfileActivitiesSet => Set<ProfileActivity>();
     public DbSet<Product> ProductsSet => Set<Product>();
     public DbSet<ProductPlan> ProductPlansSet => Set<ProductPlan>();
+    public DbSet<ProductSprint> ProductSprintsSet => Set<ProductSprint>();
+    public DbSet<ProductTask> ProductTasksSet => Set<ProductTask>();
     public DbSet<License> LicensesSet => Set<License>();
     public DbSet<Client> ClientsSet => Set<Client>();
     public DbSet<ConnectedUser> ConnectedUsersSet => Set<ConnectedUser>();
@@ -35,6 +37,8 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     IQueryable<ProfileActivity> IMyratiDbContext.ProfileActivities => ProfileActivitiesSet;
     IQueryable<Product> IMyratiDbContext.Products => ProductsSet;
     IQueryable<ProductPlan> IMyratiDbContext.ProductPlans => ProductPlansSet;
+    IQueryable<ProductSprint> IMyratiDbContext.ProductSprints => ProductSprintsSet;
+    IQueryable<ProductTask> IMyratiDbContext.ProductTasks => ProductTasksSet;
     IQueryable<License> IMyratiDbContext.Licenses => LicensesSet;
     IQueryable<Client> IMyratiDbContext.Clients => ClientsSet;
     IQueryable<ConnectedUser> IMyratiDbContext.ConnectedUsers => ConnectedUsersSet;
@@ -104,6 +108,7 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
             builder.Property(x => x.Description).HasMaxLength(500);
             builder.Property(x => x.Category).HasMaxLength(120);
             builder.Property(x => x.Status).HasMaxLength(40);
+            builder.Property(x => x.SalesStrategy).HasMaxLength(40);
             builder.Property(x => x.Version).HasMaxLength(30);
             builder.HasMany(x => x.Plans)
                 .WithOne(x => x.Product)
@@ -113,6 +118,14 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
                 .WithOne(x => x.Product)
                 .HasForeignKey(x => x.ProductId)
                 .OnDelete(DeleteBehavior.Restrict);
+            builder.HasMany(x => x.Sprints)
+                .WithOne(x => x.Product)
+                .HasForeignKey(x => x.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
+            builder.HasMany(x => x.Tasks)
+                .WithOne(x => x.Product)
+                .HasForeignKey(x => x.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ProductPlan>(builder =>
@@ -120,6 +133,36 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
             builder.HasKey(x => x.Id);
             builder.Property(x => x.Id).ValueGeneratedNever();
             builder.Property(x => x.Name).HasMaxLength(60);
+            builder.Property(x => x.MonthlyPrice).HasPrecision(18, 2);
+            builder.Property(x => x.DevelopmentCost).HasPrecision(18, 2);
+            builder.Property(x => x.MaintenanceCost).HasPrecision(18, 2);
+            builder.Property(x => x.RevenueSharePercent).HasPrecision(5, 2);
+        });
+
+        modelBuilder.Entity<ProductSprint>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.Name).HasMaxLength(120);
+            builder.Property(x => x.Status).HasMaxLength(30);
+            builder.HasIndex(x => new { x.ProductId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ProductTask>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.Title).HasMaxLength(160);
+            builder.Property(x => x.Description).HasMaxLength(1000);
+            builder.Property(x => x.Column).HasMaxLength(30);
+            builder.Property(x => x.Priority).HasMaxLength(20);
+            builder.Property(x => x.Assignee).HasMaxLength(160);
+            builder.Property(x => x.TagsSerialized).HasMaxLength(4000);
+            builder.HasIndex(x => new { x.ProductId, x.SprintId, x.Column, x.SortOrder });
+            builder.HasOne(x => x.Sprint)
+                .WithMany(x => x.Tasks)
+                .HasForeignKey(x => x.SprintId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<License>(builder =>
@@ -129,6 +172,8 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
             builder.Property(x => x.Plan).HasMaxLength(60);
             builder.Property(x => x.Status).HasMaxLength(40);
             builder.Property(x => x.MonthlyValue).HasPrecision(18, 2);
+            builder.Property(x => x.DevelopmentCost).HasPrecision(18, 2);
+            builder.Property(x => x.RevenueSharePercent).HasPrecision(5, 2);
             builder.HasOne(x => x.Client)
                 .WithMany(x => x.Licenses)
                 .HasForeignKey(x => x.ClientId)
@@ -166,7 +211,7 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
             builder.HasOne(x => x.Product)
                 .WithMany()
                 .HasForeignKey(x => x.ProductId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<CompanySettings>(builder =>

@@ -29,6 +29,7 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
                 Description = productSeed.Description,
                 Category = productSeed.Category,
                 Status = productSeed.Status,
+                SalesStrategy = productSeed.SalesStrategy,
                 CreatedDate = ParseDate(productSeed.CreatedDate),
                 Version = productSeed.Version
             }, cancellationToken);
@@ -42,7 +43,10 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
                     ProductId = productSeed.Id,
                     Name = planSeed.Name,
                     MaxUsers = planSeed.MaxUsers,
-                    MonthlyPrice = planSeed.MonthlyPrice
+                    MonthlyPrice = planSeed.MonthlyPrice,
+                    DevelopmentCost = planSeed.DevelopmentCost,
+                    MaintenanceCost = planSeed.MaintenanceCost,
+                    RevenueSharePercent = planSeed.RevenueSharePercent
                 }, cancellationToken);
                 planIndex++;
             }
@@ -80,7 +84,9 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
                 Status = licenseSeed.Status,
                 StartDate = ParseDate(licenseSeed.StartDate),
                 ExpiryDate = ParseDate(licenseSeed.ExpiryDate),
-                MonthlyValue = licenseSeed.MonthlyValue
+                MonthlyValue = licenseSeed.MonthlyValue,
+                DevelopmentCost = licenseSeed.DevelopmentCost,
+                RevenueSharePercent = licenseSeed.RevenueSharePercent
             }, cancellationToken);
         }
 
@@ -95,6 +101,38 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
                 Email = userSeed.Email,
                 LastActiveDisplay = userSeed.LastActive,
                 Status = userSeed.Status
+            }, cancellationToken);
+        }
+
+        foreach (var sprintSeed in SprintSeeds)
+        {
+            await context.AddAsync(new ProductSprint
+            {
+                Id = sprintSeed.Id,
+                ProductId = sprintSeed.ProductId,
+                Name = sprintSeed.Name,
+                StartDate = ParseDate(sprintSeed.StartDate),
+                EndDate = ParseDate(sprintSeed.EndDate),
+                Status = sprintSeed.Status,
+                SortOrder = sprintSeed.SortOrder
+            }, cancellationToken);
+        }
+
+        foreach (var taskSeed in TaskSeeds)
+        {
+            await context.AddAsync(new ProductTask
+            {
+                Id = taskSeed.Id,
+                ProductId = taskSeed.ProductId,
+                SprintId = taskSeed.SprintId,
+                Title = taskSeed.Title,
+                Description = taskSeed.Description,
+                Column = taskSeed.Column,
+                Priority = taskSeed.Priority,
+                Assignee = taskSeed.Assignee,
+                TagsSerialized = SerializeTags(taskSeed.Tags),
+                CreatedDate = ParseDate(taskSeed.CreatedDate),
+                SortOrder = taskSeed.SortOrder
             }, cancellationToken);
         }
 
@@ -245,30 +283,32 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
     private static DateOnly ParseDate(string value) =>
         DateOnly.ParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture);
 
+    private static string SerializeTags(IReadOnlyCollection<string> tags) =>
+        System.Text.Json.JsonSerializer.Serialize(tags);
+
     private static readonly ProductSeed[] ProductSeeds =
     [
-        new("PRD-001", "Myrati ERP", "Sistema integrado de gestão empresarial com módulos de financeiro, estoque, compras e vendas.", "Gestão Empresarial", "Ativo", "2022-03-15", "4.2.1",
+        new("PRD-001", "Myrati ERP", "Sistema integrado de gestão empresarial com módulos de financeiro, estoque, compras e vendas.", "Gestão Empresarial", "Ativo", "subscription", "2022-03-15", "4.2.1",
         [
-            new PlanSeed("Starter", 10, 890m),
-            new PlanSeed("Professional", 50, 3100m),
-            new PlanSeed("Enterprise", 200, 12000m)
+            new PlanSeed("Starter", 10, 890m, null, null, null),
+            new PlanSeed("Professional", 50, 3100m, null, null, null),
+            new PlanSeed("Enterprise", 200, 12000m, null, null, null)
         ]),
-        new("PRD-002", "Myrati CRM", "Plataforma de gestão de relacionamento com clientes, pipeline de vendas e automação de marketing.", "Vendas & Marketing", "Ativo", "2023-01-10", "3.1.0",
+        new("PRD-002", "Myrati CRM", "Plataforma de gestão de relacionamento com clientes, pipeline de vendas e automação de marketing.", "Vendas & Marketing", "Ativo", "subscription", "2023-01-10", "3.1.0",
         [
-            new PlanSeed("Starter", 5, 450m),
-            new PlanSeed("Professional", 40, 2200m),
-            new PlanSeed("Enterprise", 100, 5500m)
+            new PlanSeed("Starter", 5, 450m, null, null, null),
+            new PlanSeed("Professional", 40, 2200m, null, null, null),
+            new PlanSeed("Enterprise", 100, 5500m, null, null, null)
         ]),
-        new("PRD-003", "Myrati Analytics", "Plataforma de business intelligence com dashboards interativos, relatórios e análise preditiva.", "Inteligência de Dados", "Ativo", "2023-08-20", "2.0.5",
+        new("PRD-003", "Myrati Analytics", "Plataforma de business intelligence com dashboards interativos, relatórios e análise preditiva.", "Inteligência de Dados", "Ativo", "development", "2023-08-20", "2.0.5",
         [
-            new PlanSeed("Starter", 5, 390m),
-            new PlanSeed("Professional", 25, 1800m),
-            new PlanSeed("Enterprise", 100, 6800m)
+            new PlanSeed("Essencial", 15, 0m, 42000m, 1500m, null),
+            new PlanSeed("Completo", 100, 0m, 85000m, 3200m, null)
         ]),
-        new("PRD-004", "Myrati HRM", "Sistema de gestão de recursos humanos com folha de pagamento, ponto eletrônico e recrutamento.", "Recursos Humanos", "Em desenvolvimento", "2025-11-01", "0.9.0-beta",
+        new("PRD-004", "Myrati HRM", "Sistema de gestão de recursos humanos com folha de pagamento, ponto eletrônico e recrutamento.", "Recursos Humanos", "Em desenvolvimento", "revenue_share", "2025-11-01", "0.9.0-beta",
         [
-            new PlanSeed("Starter", 10, 500m),
-            new PlanSeed("Professional", 50, 2500m)
+            new PlanSeed("Padrão", 30, 0m, null, 2000m, 5m),
+            new PlanSeed("Premium", 100, 0m, null, 4500m, 3.5m)
         ])
     ];
 
@@ -290,18 +330,18 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
 
     private static readonly LicenseSeed[] LicenseSeeds =
     [
-        new("XKWM-RTPL-BFQJ-YNVD", "TechCorp Brasil", "Myrati ERP", "Enterprise", 50, 42, "Ativa", "2025-01-15", "2026-01-15", 4500m),
-        new("GHSE-LDNA-CWTF-KMPX", "InnovaDigital", "Myrati CRM", "Professional", 25, 18, "Ativa", "2025-03-01", "2026-03-01", 2200m),
-        new("BJQR-WMVN-HXTP-DFLK", "SoluçõesTI", "Myrati ERP", "Starter", 10, 10, "Ativa", "2025-06-10", "2026-06-10", 890m),
-        new("NVTC-KXRW-PLMS-FHJG", "DataFlow Ltda", "Myrati Analytics", "Enterprise", 100, 67, "Ativa", "2024-11-01", "2025-11-01", 6800m),
-        new("QLDF-BNWJ-XRKG-MHST", "NexGen Solutions", "Myrati CRM", "Starter", 5, 5, "Expirada", "2024-06-01", "2025-06-01", 450m),
-        new("TWPH-FSMC-JXNL-VBKR", "CloudBase SA", "Myrati ERP", "Professional", 30, 22, "Ativa", "2025-02-15", "2026-02-15", 3100m),
-        new("DKMR-GXLW-BNFS-QTJV", "GreenTech Inc", "Myrati Analytics", "Professional", 15, 8, "Suspensa", "2025-04-01", "2026-04-01", 1800m),
-        new("FVJN-HRTK-WDXS-LCMP", "DigitalWave", "Myrati CRM", "Enterprise", 75, 61, "Ativa", "2025-01-01", "2026-01-01", 5500m),
-        new("MXBL-PSKR-GNWT-JCHF", "FinanceHub", "Myrati ERP", "Enterprise", 200, 156, "Ativa", "2024-09-01", "2025-09-01", 12000m),
-        new("RNWF-TDJQ-XHVK-BCMG", "StartupBox", "Myrati Analytics", "Starter", 5, 3, "Pendente", "2026-03-01", "2027-03-01", 390m),
-        new("SHGK-VFXN-LDTW-PRJM", "MegaSoft", "Myrati CRM", "Professional", 40, 35, "Ativa", "2025-05-15", "2026-05-15", 3600m),
-        new("JCNL-BWPF-MTXR-QVHK", "AgileTech", "Myrati ERP", "Starter", 8, 6, "Ativa", "2025-07-01", "2026-07-01", 720m)
+        new("XKWM-RTPL-BFQJ-YNVD", "TechCorp Brasil", "Myrati ERP", "Enterprise", 50, 42, "Ativa", "2025-01-15", "2026-01-15", 4500m, null, null),
+        new("GHSE-LDNA-CWTF-KMPX", "InnovaDigital", "Myrati CRM", "Professional", 25, 18, "Ativa", "2025-03-01", "2026-03-01", 2200m, null, null),
+        new("BJQR-WMVN-HXTP-DFLK", "SoluçõesTI", "Myrati ERP", "Starter", 10, 10, "Ativa", "2025-06-10", "2026-06-10", 890m, null, null),
+        new("NVTC-KXRW-PLMS-FHJG", "DataFlow Ltda", "Myrati Analytics", "Completo", 100, 67, "Ativa", "2024-11-01", "2025-11-01", 3200m, 85000m, null),
+        new("QLDF-BNWJ-XRKG-MHST", "NexGen Solutions", "Myrati CRM", "Starter", 5, 5, "Expirada", "2024-06-01", "2025-06-01", 450m, null, null),
+        new("TWPH-FSMC-JXNL-VBKR", "CloudBase SA", "Myrati ERP", "Professional", 30, 22, "Ativa", "2025-02-15", "2026-02-15", 3100m, null, null),
+        new("DKMR-GXLW-BNFS-QTJV", "GreenTech Inc", "Myrati Analytics", "Essencial", 15, 8, "Suspensa", "2025-04-01", "2026-04-01", 1500m, 42000m, null),
+        new("FVJN-HRTK-WDXS-LCMP", "DigitalWave", "Myrati CRM", "Enterprise", 75, 61, "Ativa", "2025-01-01", "2026-01-01", 5500m, null, null),
+        new("MXBL-PSKR-GNWT-JCHF", "FinanceHub", "Myrati ERP", "Enterprise", 200, 156, "Ativa", "2024-09-01", "2025-09-01", 12000m, null, null),
+        new("RNWF-TDJQ-XHVK-BCMG", "StartupBox", "Myrati Analytics", "Essencial", 5, 3, "Pendente", "2026-03-01", "2027-03-01", 800m, 18000m, null),
+        new("SHGK-VFXN-LDTW-PRJM", "MegaSoft", "Myrati CRM", "Professional", 40, 35, "Ativa", "2025-05-15", "2026-05-15", 3600m, null, null),
+        new("JCNL-BWPF-MTXR-QVHK", "AgileTech", "Myrati HRM", "Padrão", 30, 0, "Pendente", "2026-04-01", "2027-04-01", 2000m, null, 5m)
     ];
 
     private static readonly ConnectedUserSeed[] ConnectedUserSeeds =
@@ -339,6 +379,32 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
         new("USR-032", "Leandro Campos", "leandro@megasoft.com", "MegaSoft", "Myrati CRM", "1 hora atrás", "Ausente"),
         new("USR-012", "Amanda Duarte", "amanda@agiletech.com", "AgileTech", "Myrati ERP", "10 min atrás", "Online"),
         new("USR-033", "Paulo Henrique", "paulo@agiletech.com", "AgileTech", "Myrati ERP", "Agora", "Online")
+    ];
+
+    private static readonly SprintSeed[] SprintSeeds =
+    [
+        new("SPR-001", "PRD-004", "Sprint 1 - Estrutura Base", "2026-01-05", "2026-01-19", "Concluída", 1),
+        new("SPR-002", "PRD-004", "Sprint 2 - Módulo de Folha", "2026-01-19", "2026-02-02", "Concluída", 2),
+        new("SPR-003", "PRD-004", "Sprint 3 - Ponto Eletrônico", "2026-02-02", "2026-02-16", "Ativa", 3),
+        new("SPR-004", "PRD-004", "Sprint 4 - Recrutamento", "2026-02-16", "2026-03-02", "Planejada", 4),
+        new("SPR-005", "PRD-004", "Sprint 5 - Testes & QA", "2026-03-02", "2026-03-16", "Planejada", 5)
+    ];
+
+    private static readonly TaskSeed[] TaskSeeds =
+    [
+        new("TSK-001", "PRD-004", "SPR-003", "Tela de registro de ponto", "Implementar a tela principal onde os colaboradores registram entrada, saída e intervalos.", "done", "high", "Maria Santos", ["frontend", "ui"], "2026-02-02", 1),
+        new("TSK-002", "PRD-004", "SPR-003", "API de marcação de ponto", "Criar endpoints REST para POST/GET de registros de ponto com validações de horário.", "done", "high", "João Pereira", ["backend", "api"], "2026-02-02", 2),
+        new("TSK-003", "PRD-004", "SPR-003", "Relatório de horas trabalhadas", "Dashboard com total de horas, horas extras e banco de horas por colaborador no período.", "in_progress", "medium", "Maria Santos", ["frontend", "relatorio"], "2026-02-03", 1),
+        new("TSK-004", "PRD-004", "SPR-003", "Integração com biometria", "Integrar SDK de leitores biométricos para registro automático de ponto.", "in_progress", "critical", "João Pereira", ["backend", "integracao"], "2026-02-04", 2),
+        new("TSK-005", "PRD-004", "SPR-003", "Notificações de atraso", "Sistema de alertas automáticos quando o colaborador não registra ponto no horário previsto.", "todo", "medium", "Ana Costa", ["backend", "notificacao"], "2026-02-05", 1),
+        new("TSK-006", "PRD-004", "SPR-003", "Aprovação de horas extras", "Fluxo de aprovação para gestores validarem horas extras antes do fechamento.", "todo", "high", "Maria Santos", ["frontend", "workflow"], "2026-02-06", 2),
+        new("TSK-007", "PRD-004", "SPR-003", "Testes unitários - Ponto", "Escrever testes unitários para toda a lógica de cálculo de horas e validações.", "backlog", "low", "João Pereira", ["teste", "qualidade"], "2026-02-07", 1),
+        new("TSK-008", "PRD-004", "SPR-003", "Exportação de espelho de ponto", "Gerar PDF/Excel do espelho de ponto mensal conforme legislação trabalhista.", "review", "medium", "Ana Costa", ["backend", "relatorio"], "2026-02-03", 1),
+        new("TSK-009", "PRD-004", "SPR-004", "Cadastro de vagas", "CRUD completo de vagas com campos de cargo, departamento, requisitos e faixa salarial.", "backlog", "high", string.Empty, ["frontend", "backend"], "2026-02-10", 1),
+        new("TSK-010", "PRD-004", "SPR-004", "Pipeline de candidatos", "Kanban visual para movimentação de candidatos nas etapas do processo seletivo.", "backlog", "high", string.Empty, ["frontend", "ui"], "2026-02-10", 2),
+        new("TSK-011", "PRD-004", "SPR-004", "Portal do candidato", "Página pública para candidatos se inscreverem e acompanharem o status da candidatura.", "backlog", "medium", string.Empty, ["frontend", "publico"], "2026-02-10", 3),
+        new("TSK-012", "PRD-004", "SPR-005", "Testes E2E - Fluxo completo", "Suite completa de testes end-to-end cobrindo os fluxos principais do HRM.", "backlog", "critical", string.Empty, ["teste", "qualidade"], "2026-02-14", 1),
+        new("TSK-013", "PRD-004", "SPR-005", "Testes de performance", "Stress test e benchmark de carga com simulação de 500+ usuários simultâneos.", "backlog", "high", string.Empty, ["teste", "performance"], "2026-02-14", 2)
     ];
 
     private static readonly RevenueSnapshotSeed[] RevenueSnapshotSeeds =
@@ -438,11 +504,18 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
         string Description,
         string Category,
         string Status,
+        string SalesStrategy,
         string CreatedDate,
         string Version,
         IReadOnlyCollection<PlanSeed> Plans);
 
-    private sealed record PlanSeed(string Name, int MaxUsers, decimal MonthlyPrice);
+    private sealed record PlanSeed(
+        string Name,
+        int MaxUsers,
+        decimal MonthlyPrice,
+        decimal? DevelopmentCost,
+        decimal? MaintenanceCost,
+        decimal? RevenueSharePercent);
 
     private sealed record ClientSeed(
         string Id,
@@ -465,7 +538,9 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
         string Status,
         string StartDate,
         string ExpiryDate,
-        decimal MonthlyValue);
+        decimal MonthlyValue,
+        decimal? DevelopmentCost,
+        decimal? RevenueSharePercent);
 
     private sealed record ConnectedUserSeed(
         string Id,
@@ -475,6 +550,28 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
         string ProductName,
         string LastActive,
         string Status);
+
+    private sealed record SprintSeed(
+        string Id,
+        string ProductId,
+        string Name,
+        string StartDate,
+        string EndDate,
+        string Status,
+        int SortOrder);
+
+    private sealed record TaskSeed(
+        string Id,
+        string ProductId,
+        string SprintId,
+        string Title,
+        string Description,
+        string Column,
+        string Priority,
+        string Assignee,
+        IReadOnlyCollection<string> Tags,
+        string CreatedDate,
+        int SortOrder);
 
     private sealed record RevenueSnapshotSeed(string Id, string Month, decimal Revenue, int Licenses, int SortOrder);
 

@@ -14,6 +14,8 @@ public sealed class License : Entity
     public DateOnly StartDate { get; set; }
     public DateOnly ExpiryDate { get; set; }
     public decimal MonthlyValue { get; set; }
+    public decimal? DevelopmentCost { get; set; }
+    public decimal? RevenueSharePercent { get; set; }
 
     public Client? Client { get; set; }
     public Product? Product { get; set; }

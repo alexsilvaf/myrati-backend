@@ -74,6 +74,8 @@ public sealed class LicenseActivationEndpointsTests(CustomWebApplicationFactory 
                 clientId,
                 plan,
                 990m,
+                null,
+                null,
                 today.AddDays(-1).ToString("yyyy-MM-dd"),
                 today.AddDays(30).ToString("yyyy-MM-dd")));
 

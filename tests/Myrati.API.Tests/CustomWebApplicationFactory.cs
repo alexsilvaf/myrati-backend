@@ -7,16 +7,25 @@ namespace Myrati.API.Tests;
 
 public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
+    private static readonly string SharedDatabasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"myrati-api-tests-{Environment.ProcessId}.db");
     private string? _databasePath;
+
+    static CustomWebApplicationFactory()
+    {
+        if (File.Exists(SharedDatabasePath))
+        {
+            File.Delete(SharedDatabasePath);
+        }
+
+        Environment.SetEnvironmentVariable("ConnectionStrings__MyratiDb", $"Data Source={SharedDatabasePath}");
+        Environment.SetEnvironmentVariable("Jwt__Key", "TEST_SECRET_KEY_12345678901234567890");
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        _databasePath = Path.Combine(
-            Path.GetTempPath(),
-            $"myrati-api-tests-{Guid.NewGuid():N}.db");
-
-        Environment.SetEnvironmentVariable("ConnectionStrings__MyratiDb", $"Data Source={_databasePath}");
-        Environment.SetEnvironmentVariable("Jwt__Key", "TEST_SECRET_KEY_12345678901234567890");
+        _databasePath = SharedDatabasePath;
 
         builder.ConfigureAppConfiguration((_, configBuilder) =>
         {
@@ -32,20 +41,6 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
     public new async Task DisposeAsync()
     {
-        Environment.SetEnvironmentVariable("ConnectionStrings__MyratiDb", null);
-        Environment.SetEnvironmentVariable("Jwt__Key", null);
-
         await base.DisposeAsync();
-
-        if (_databasePath is not null && File.Exists(_databasePath))
-        {
-            try
-            {
-                File.Delete(_databasePath);
-            }
-            catch (IOException)
-            {
-            }
-        }
     }
 }
