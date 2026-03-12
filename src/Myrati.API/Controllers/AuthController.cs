@@ -21,6 +21,28 @@ public sealed class AuthController(IAuthService authService) : AuthenticatedCont
         return Ok(response);
     }
 
+    [AllowAnonymous]
+    [EnableRateLimiting("public")]
+    [HttpGet("password-setup")]
+    public async Task<ActionResult<PasswordSetupSessionDto>> GetPasswordSetupSession(
+        [FromQuery] string token,
+        CancellationToken cancellationToken)
+    {
+        var response = await authService.GetPasswordSetupSessionAsync(token, cancellationToken);
+        return Ok(response);
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("public")]
+    [HttpPost("password-setup")]
+    public async Task<IActionResult> CompletePasswordSetup(
+        [FromBody] PasswordSetupRequest request,
+        CancellationToken cancellationToken)
+    {
+        await authService.CompletePasswordSetupAsync(request, cancellationToken);
+        return NoContent();
+    }
+
     [Authorize(Policy = "BackofficeRead")]
     [HttpGet("me")]
     public async Task<ActionResult<AuthUserDto>> Me(CancellationToken cancellationToken)

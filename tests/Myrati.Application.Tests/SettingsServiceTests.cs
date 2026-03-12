@@ -1,4 +1,5 @@
 using Myrati.Application.Common.Exceptions;
+using Myrati.Application.Abstractions;
 using Myrati.Application.Services;
 using Myrati.Application.Tests.Support;
 using Myrati.Application.Validation;
@@ -17,13 +18,26 @@ public sealed class SettingsServiceTests
         var service = new SettingsService(
             scope.Context,
             new PasswordHasher(),
+            new NoOpPasswordSetupEmailSender(),
             new UpdateSettingsRequestValidator(),
             new CreateApiKeyRequestValidator(),
             new CreateTeamMemberRequestValidator(),
             new UpdateTeamMemberRequestValidator(),
-            publisher);
+            publisher,
+            new TestBackofficeNotificationPublisher());
 
         await Assert.ThrowsAsync<ConflictException>(() => service.DeleteTeamMemberAsync("TM-001"));
         Assert.Empty(publisher.Events);
+    }
+
+    private sealed class NoOpPasswordSetupEmailSender : IPasswordSetupEmailSender
+    {
+        public Task SendAsync(
+            string recipientName,
+            string recipientEmail,
+            string token,
+            DateTimeOffset expiresAt,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 }

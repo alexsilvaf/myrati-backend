@@ -2,7 +2,7 @@
 
 # Myrati Backend
 
-**Monólito modular em .NET 10 para o painel administrativo, área pública e fluxos em tempo real da Myrati.**
+**Backend em .NET 10 com gateway e serviços por contexto para o painel administrativo, área pública e fluxos em tempo real da Myrati.**
 
 ![.NET](https://img.shields.io/badge/.NET_10-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)
 ![C#](https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=csharp&logoColor=white)
@@ -114,7 +114,17 @@ O projeto mantém regras de negócio centralizadas na camada de aplicação, con
 
 ## Arquitetura
 
-O projeto usa um **monólito modular com separação por camadas** — baixo custo operacional sem sacrificar organização para evolução futura.
+O projeto agora usa uma **topologia de microsserviços por contexto com gateway na frente**, ainda reaproveitando as camadas de domínio, aplicação e infraestrutura do backend original.
+
+### Serviços executáveis
+
+| Serviço | Responsabilidade |
+|--------|------------------|
+| **Myrati.Gateway.API** | Entrada única do frontend e roteamento |
+| **Myrati.IdentityService.API** | Auth, perfil, equipe e settings |
+| **Myrati.BackofficeService.API** | Dashboard, produtos, licenças, clientes, usuários e SSE |
+| **Myrati.PublicService.API** | Contato público e ativação de licenças |
+| **Myrati.API** | Host legado do monólito, mantido para compatibilidade e testes |
 
 ### Camadas
 
@@ -164,11 +174,13 @@ API  ──>  Application  ──>  Domain
 myrati-backend/
 ├── src/
 │   ├── Myrati.API/
+│   ├── Myrati.BackofficeService.API/
 │   │   ├── Controllers/
 │   │   ├── Middleware/
 │   │   ├── Realtime/
 │   │   └── Program.cs
 │   ├── Myrati.Application/
+│   ├── Myrati.Gateway.API/
 │   │   ├── Abstractions/
 │   │   ├── Common/
 │   │   ├── Contracts/
@@ -177,6 +189,7 @@ myrati-backend/
 │   │   ├── Services/
 │   │   └── Validation/
 │   ├── Myrati.Domain/
+│   ├── Myrati.IdentityService.API/
 │   │   ├── Clients/
 │   │   ├── Common/
 │   │   ├── Dashboard/
@@ -184,6 +197,8 @@ myrati-backend/
 │   │   ├── Products/
 │   │   ├── Public/
 │   │   └── Settings/
+│   ├── Myrati.PublicService.API/
+│   ├── Myrati.ServiceDefaults/
 │   └── Myrati.Infrastructure/
 │       ├── DependencyInjection/
 │       ├── Persistence/
@@ -273,10 +288,35 @@ O backend aceita arquivos locais opcionais (ignorados pelo git), carregados por 
 docker compose up -d postgres
 ```
 
-### 2. Rodar a API
+### 2. Rodar os serviços
+
+Gateway:
 
 ```powershell
-cd c:\Projects\myrati\myrati-backend
+dotnet run --project .\src\Myrati.Gateway.API\Myrati.Gateway.API.csproj
+```
+
+Identity:
+
+```powershell
+dotnet run --project .\src\Myrati.IdentityService.API\Myrati.IdentityService.API.csproj
+```
+
+Backoffice:
+
+```powershell
+dotnet run --project .\src\Myrati.BackofficeService.API\Myrati.BackofficeService.API.csproj
+```
+
+Public:
+
+```powershell
+dotnet run --project .\src\Myrati.PublicService.API\Myrati.PublicService.API.csproj
+```
+
+Host legado do monólito:
+
+```powershell
 dotnet run --project .\src\Myrati.API\Myrati.API.csproj
 ```
 
@@ -304,7 +344,10 @@ docker compose up --build
 | Serviço | Endereço |
 |---------|----------|
 | PostgreSQL | `localhost:5432` |
-| API | `http://localhost:8080` |
+| Gateway | `http://localhost:5118` |
+| Identity Service | `http://localhost:5119` |
+| Backoffice Service | `http://localhost:5120` |
+| Public Service | `http://localhost:5121` |
 
 ---
 

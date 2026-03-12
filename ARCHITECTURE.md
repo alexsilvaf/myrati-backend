@@ -2,7 +2,27 @@
 
 ## Diretriz
 
-O backend foi iniciado como um monólito modular. Isso segue a mesma linha do projeto de referência, mas sem antecipar complexidade operacional que o produto ainda não exige.
+O backend nasceu como um monólito modular e agora passou a expor uma topologia de microsserviços por contexto. A separação atual privilegia isolamento de deploy e fronteiras HTTP claras, sem reescrever todo o domínio de uma vez.
+
+## Topologia atual
+
+- `Myrati.Gateway.API`
+  - ponto único de entrada para o frontend;
+  - roteia requests para os serviços internos;
+  - preserva a URL pública única da plataforma.
+- `Myrati.IdentityService.API`
+  - autenticação;
+  - perfil;
+  - configurações administrativas e equipe.
+- `Myrati.BackofficeService.API`
+  - dashboard;
+  - catálogo, licenças, clientes e usuários;
+  - stream SSE do backoffice e stream público de status.
+- `Myrati.PublicService.API`
+  - formulário público;
+  - ativação pública de licenças.
+
+> O projeto `Myrati.API` foi mantido como host legado do monólito para compatibilidade e testes já existentes, mas a topologia operacional recomendada agora é gateway + serviços.
 
 ## Módulos
 
@@ -30,7 +50,9 @@ O backend foi iniciado como um monólito modular. Isso segue a mesma linha do pr
 - `Myrati.Infrastructure`
   - EF Core, JWT, BCrypt e seed.
 - `Myrati.API`
-  - HTTP, autenticação, autorização, rate limiting e middleware.
+  - controllers e infraestrutura HTTP compartilhados pelo host legado e pelos novos serviços.
+- `Myrati.ServiceDefaults`
+  - bootstrap comum de autenticação, autorização, rate limiting, swagger, CORS e filtro de controllers por serviço.
 
 ## Decisões principais
 
@@ -50,13 +72,13 @@ O backend foi iniciado como um monólito modular. Isso segue a mesma linha do pr
 - o backoffice e a status page podem operar em near real-time com SSE;
 - validações ficam fora dos controllers.
 
-## Evolução sugerida
+## Limites e próximo passo
 
-Quando o produto justificar maior escala ou times independentes, a evolução natural é:
+A separação atual ainda compartilha a camada de aplicação e o mesmo banco de dados. Isso reduz risco de regressão nesta etapa, mas não é o ponto final de uma arquitetura totalmente distribuída.
 
-1. extrair migrations versionadas e observabilidade centralizada;
-2. separar leitura analítica do dashboard de operações transacionais;
-3. introduzir eventos de domínio para licenças, clientes e auditoria;
-4. avaliar extração do módulo público e do módulo de autenticação.
+Evolução natural a partir daqui:
 
-Até lá, a forma atual é mais barata, mais simples de operar e suficiente para o escopo real do sistema.
+1. extrair bancos por serviço;
+2. substituir o hub de eventos em memória por barramento compartilhado;
+3. mover observabilidade e tracing para o gateway e para cada serviço;
+4. remover o host legado `Myrati.API` quando a cobertura de testes dos novos hosts estiver equivalente.

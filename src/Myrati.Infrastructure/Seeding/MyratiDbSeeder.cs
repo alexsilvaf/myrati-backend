@@ -1,6 +1,8 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Myrati.Application.Abstractions;
+using Myrati.Application.Common;
 using Myrati.Domain.Clients;
 using Myrati.Domain.Dashboard;
 using Myrati.Domain.Identity;
@@ -11,10 +13,28 @@ using Myrati.Infrastructure.Persistence;
 
 namespace Myrati.Infrastructure.Seeding;
 
-public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
+public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguration configuration)
 {
+    private const string BootstrapPassword = "Myrati@123";
+    private readonly bool includeDemoData = configuration.GetValue<bool>("Seeding:IncludeDemoData");
+
     public async Task SeedAsync(MyratiDbContext context, CancellationToken cancellationToken = default)
     {
+        await NormalizeLegacyRolesAsync(context, cancellationToken);
+
+        if (!includeDemoData)
+        {
+            var removedLegacyDemoData = await RemoveLegacyDemoDataAsync(context, cancellationToken);
+            await EnsureRequiredSuperAdminsAsync(context, removedLegacyDemoData, cancellationToken);
+
+            if (context.ChangeTracker.HasChanges())
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
+            return;
+        }
+
         if (await context.ProductsSet.AnyAsync(cancellationToken) || await context.AdminUsersSet.AnyAsync(cancellationToken))
         {
             return;
@@ -306,11 +326,224 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
         await context.SaveChangesAsync(cancellationToken);
     }
 
+    private static async Task<bool> RemoveLegacyDemoDataAsync(MyratiDbContext context, CancellationToken cancellationToken)
+    {
+        var legacyAdminEmails = AdminUserSeeds
+            .Select(seed => seed.Email.ToLowerInvariant())
+            .ToArray();
+        var hasLegacyDemoAdmins = await context.AdminUsersSet.AnyAsync(
+            user => legacyAdminEmails.Contains(user.Email.ToLower()),
+            cancellationToken);
+
+        if (!hasLegacyDemoAdmins)
+        {
+            return false;
+        }
+
+        var legacyProductIds = ProductSeeds.Select(seed => seed.Id).ToArray();
+        var legacyClientIds = ClientSeeds.Select(seed => seed.Id).ToArray();
+        var legacyLicenseIds = LicenseSeeds.Select(seed => seed.Id).ToArray();
+        var legacySprintIds = SprintSeeds.Select(seed => seed.Id).ToArray();
+        var legacyTaskIds = TaskSeeds.Select(seed => seed.Id).ToArray();
+        var legacyRevenueSnapshotIds = RevenueSnapshotSeeds.Select(seed => seed.Id).ToArray();
+        var legacyDashboardActivityIds = DashboardActivitySeeds.Select(seed => seed.Id).ToArray();
+        var legacyApiKeyIds = ApiKeySeeds.Select(seed => seed.Id).ToArray();
+        var legacyAdminIds = AdminUserSeeds.Select(seed => seed.Id).ToArray();
+        var legacyProfileSessionIds = ProfileSessionSeeds.Select(seed => seed.Id).ToArray();
+        var legacyProfileActivityIds = ProfileActivitySeeds.Select(seed => seed.Id).ToArray();
+        var legacySystemComponentIds = SystemComponentSeeds.Select(seed => seed.Id).ToArray();
+        var legacySystemIncidentIds = SystemIncidentSeeds.Select(seed => seed.Id).ToArray();
+        var legacyUptimeSampleIds = UptimeSampleSeeds.Select(seed => seed.Id).ToArray();
+
+        var legacyLicenses = await context.LicensesSet
+            .Where(license =>
+                legacyLicenseIds.Contains(license.Id) ||
+                legacyProductIds.Contains(license.ProductId) ||
+                legacyClientIds.Contains(license.ClientId))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyLicenses);
+
+        var legacyConnectedUsers = await context.ConnectedUsersSet
+            .Where(user =>
+                legacyProductIds.Contains(user.ProductId) ||
+                legacyClientIds.Contains(user.ClientId))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyConnectedUsers);
+
+        var legacyTasks = await context.ProductTasksSet
+            .Where(task =>
+                legacyTaskIds.Contains(task.Id) ||
+                legacyProductIds.Contains(task.ProductId) ||
+                legacySprintIds.Contains(task.SprintId))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyTasks);
+
+        var legacySprints = await context.ProductSprintsSet
+            .Where(sprint =>
+                legacySprintIds.Contains(sprint.Id) ||
+                legacyProductIds.Contains(sprint.ProductId))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacySprints);
+
+        var legacyProducts = await context.ProductsSet
+            .Where(product => legacyProductIds.Contains(product.Id))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyProducts);
+
+        var legacyClients = await context.ClientsSet
+            .Where(client => legacyClientIds.Contains(client.Id))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyClients);
+
+        var legacyRevenueSnapshots = await context.RevenueSnapshotsSet
+            .Where(snapshot => legacyRevenueSnapshotIds.Contains(snapshot.Id))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyRevenueSnapshots);
+
+        var legacyDashboardActivities = await context.ActivityFeedItemsSet
+            .Where(activity => legacyDashboardActivityIds.Contains(activity.Id))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyDashboardActivities);
+
+        var legacyApiKeys = await context.ApiKeysSet
+            .Where(apiKey => legacyApiKeyIds.Contains(apiKey.Id))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyApiKeys);
+
+        var legacyProfileSessions = await context.ProfileSessionsSet
+            .Where(session =>
+                legacyProfileSessionIds.Contains(session.Id) ||
+                legacyAdminIds.Contains(session.AdminUserId))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyProfileSessions);
+
+        var legacyProfileActivities = await context.ProfileActivitiesSet
+            .Where(activity =>
+                legacyProfileActivityIds.Contains(activity.Id) ||
+                legacyAdminIds.Contains(activity.AdminUserId))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyProfileActivities);
+
+        var legacyPasswordSetupTokens = await context.PasswordSetupTokensSet
+            .Where(token => legacyAdminIds.Contains(token.AdminUserId))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyPasswordSetupTokens);
+
+        var legacyAdmins = await context.AdminUsersSet
+            .Where(user =>
+                legacyAdminIds.Contains(user.Id) ||
+                legacyAdminEmails.Contains(user.Email.ToLower()))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyAdmins);
+
+        var legacySettings = await context.CompanySettingsSet
+            .Where(settings => settings.Id == "CFG-001" && settings.ContactEmail == "contato@myrati.com")
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacySettings);
+
+        var legacyStatusMetadata = await context.SystemStatusMetadataSet
+            .Where(metadata => metadata.Id == "SYS-001" && metadata.LastUpdatedDisplay == "09 Mar 2026 às 14:32 (BRT)")
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyStatusMetadata);
+
+        var legacySystemComponents = await context.SystemComponentStatusesSet
+            .Where(component => legacySystemComponentIds.Contains(component.Id))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacySystemComponents);
+
+        var legacySystemIncidents = await context.SystemIncidentsSet
+            .Where(incident => legacySystemIncidentIds.Contains(incident.Id))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacySystemIncidents);
+
+        var legacyUptimeSamples = await context.UptimeSamplesSet
+            .Where(sample => legacyUptimeSampleIds.Contains(sample.Id))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyUptimeSamples);
+
+        return true;
+    }
+
+    private async Task EnsureRequiredSuperAdminsAsync(
+        MyratiDbContext context,
+        bool resetBootstrapPassword,
+        CancellationToken cancellationToken)
+    {
+        var existingAdminIds = await context.AdminUsersSet
+            .Select(user => user.Id)
+            .ToListAsync(cancellationToken);
+
+        foreach (var adminSeed in ProductionAdminSeeds)
+        {
+            var normalizedEmail = adminSeed.Email.ToLowerInvariant();
+            var adminUser = await context.AdminUsersSet
+                .FirstOrDefaultAsync(user => user.Email.ToLower() == normalizedEmail, cancellationToken);
+
+            if (adminUser is null)
+            {
+                var adminId = existingAdminIds.Contains(adminSeed.Id, StringComparer.Ordinal)
+                    ? IdGenerator.NextPrefixedId("TM-", existingAdminIds)
+                    : adminSeed.Id;
+
+                existingAdminIds.Add(adminId);
+
+                await context.AddAsync(new AdminUser
+                {
+                    Id = adminId,
+                    Name = adminSeed.Name,
+                    Email = adminSeed.Email,
+                    Phone = adminSeed.Phone,
+                    Role = adminSeed.Role,
+                    Status = adminSeed.Status,
+                    Department = adminSeed.Department,
+                    Location = adminSeed.Location,
+                    PasswordHash = passwordHasher.Hash(BootstrapPassword),
+                    IsPrimaryAccount = adminSeed.IsPrimaryAccount
+                }, cancellationToken);
+
+                continue;
+            }
+
+            adminUser.Name = adminSeed.Name;
+            adminUser.Email = adminSeed.Email;
+            adminUser.Role = adminSeed.Role;
+            adminUser.Status = adminSeed.Status;
+            adminUser.IsPrimaryAccount = adminSeed.IsPrimaryAccount;
+
+            if (resetBootstrapPassword)
+            {
+                adminUser.PasswordHash = passwordHasher.Hash(BootstrapPassword);
+            }
+
+            context.Update(adminUser);
+        }
+    }
+
     private static DateOnly ParseDate(string value) =>
         DateOnly.ParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private static string SerializeTags(IReadOnlyCollection<string> tags) =>
         System.Text.Json.JsonSerializer.Serialize(tags);
+
+    private static async Task NormalizeLegacyRolesAsync(MyratiDbContext context, CancellationToken cancellationToken)
+    {
+        var legacyUsers = await context.AdminUsersSet
+            .Where(user => user.Role == "Viewer")
+            .ToListAsync(cancellationToken);
+
+        if (legacyUsers.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var user in legacyUsers)
+        {
+            user.Role = "Vendedor";
+        }
+
+        context.UpdateRange(legacyUsers);
+        await context.SaveChangesAsync(cancellationToken);
+    }
 
     private static readonly ProductSeed[] ProductSeeds =
     [
@@ -465,12 +698,18 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher)
         new("AK-002", "Staging", "myra_stg_", "b3c5d8e1f4a7b2c6", true, "2025-03-05")
     ];
 
+    private static readonly AdminUserSeed[] ProductionAdminSeeds =
+    [
+        new("TM-001", "Alex", "alex@myrati.com.br", string.Empty, "Super Admin", "Ativo", string.Empty, string.Empty, true),
+        new("TM-002", "Yasmin", "yasmin@myrati.com.br", string.Empty, "Super Admin", "Ativo", string.Empty, string.Empty, false)
+    ];
+
     private static readonly AdminUserSeed[] AdminUserSeeds =
     [
         new("TM-001", "Admin Master", "admin@myrati.com", "(11) 99876-5432", "Super Admin", "Ativo", "Tecnologia", "São Paulo, SP", true),
         new("TM-002", "Maria Santos", "maria@myrati.com", "(11) 97777-1000", "Admin", "Ativo", "Operações", "São Paulo, SP", false),
         new("TM-003", "João Pereira", "joao@myrati.com", "(21) 98888-2000", "Desenvolvedor", "Ativo", "Plataforma", "Rio de Janeiro, RJ", false),
-        new("TM-004", "Ana Costa", "ana@myrati.com", "(31) 96666-3000", "Admin", "Convite Pendente", "Comercial", "Belo Horizonte, MG", false),
+        new("TM-004", "Ana Costa", "ana@myrati.com", "(31) 96666-3000", "Vendedor", "Convite Pendente", "Comercial", "Belo Horizonte, MG", false),
         new("TM-005", "Bruno Lima", "bruno@myrati.com", "(41) 95555-4000", "Desenvolvedor", "Ativo", "Produto", "Curitiba, PR", false)
     ];
 

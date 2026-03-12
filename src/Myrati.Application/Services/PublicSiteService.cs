@@ -10,7 +10,8 @@ namespace Myrati.Application.Services;
 public sealed class PublicSiteService(
     IMyratiDbContext dbContext,
     FluentValidation.IValidator<ContactRequest> contactValidator,
-    IRealtimeEventPublisher realtimeEventPublisher) : IPublicSiteService
+    IRealtimeEventPublisher realtimeEventPublisher,
+    IBackofficeNotificationPublisher backofficeNotificationPublisher) : IPublicSiteService
 {
     public async Task<ContactResponse> SubmitContactAsync(
         ContactRequest request,
@@ -34,20 +35,19 @@ public sealed class PublicSiteService(
         }, cancellationToken);
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        var payload = new
+        {
+            Id = leadId,
+            request.Name,
+            request.Email,
+            request.Company,
+            request.Subject
+        };
+
         await realtimeEventPublisher.PublishAsync(
-            new RealtimeEvent(
-                RealtimeChannels.Backoffice,
-                "contact.received",
-                DateTimeOffset.UtcNow,
-                new
-                {
-                    Id = leadId,
-                    request.Name,
-                    request.Email,
-                    request.Company,
-                    request.Subject
-                }),
+            new RealtimeEvent(RealtimeChannels.Backoffice, "contact.received", DateTimeOffset.UtcNow, payload),
             cancellationToken);
+        await backofficeNotificationPublisher.PublishAsync("contact.received", payload, cancellationToken);
 
         return new ContactResponse("Mensagem enviada com sucesso.");
     }

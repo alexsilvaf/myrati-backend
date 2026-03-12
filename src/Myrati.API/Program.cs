@@ -62,7 +62,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 var path = context.HttpContext.Request.Path;
                 var accessToken = context.Request.Query["access_token"];
 
-                if (path.StartsWithSegments("/api/v1/backoffice/events")
+                if ((path.StartsWithSegments("/api/v1/backoffice/events")
+                        || path.StartsWithSegments("/api/v1/backoffice/notifications/stream"))
                     && !string.IsNullOrWhiteSpace(accessToken))
                 {
                     context.Token = accessToken;
@@ -76,7 +77,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("BackofficeRead", policy =>
-        policy.RequireRole("Super Admin", "Admin", "Viewer", "Desenvolvedor"));
+        policy.RequireRole("Super Admin", "Admin", "Vendedor", "Desenvolvedor"));
     options.AddPolicy("ProductCreate", policy =>
         policy.RequireRole("Super Admin", "Admin", "Desenvolvedor"));
     options.AddPolicy("BackofficeWrite", policy =>

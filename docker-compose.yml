@@ -12,11 +12,14 @@ services:
     volumes:
       - myrati-postgres-data:/var/lib/postgresql/data
 
-  api:
+  backoffice-service:
     build:
       context: .
-      dockerfile: ./src/Myrati.API/Dockerfile
-    container_name: myrati-api
+      dockerfile: ./src/ServiceHost.Dockerfile
+      args:
+        SERVICE_PROJECT: src/Myrati.BackofficeService.API/Myrati.BackofficeService.API.csproj
+        SERVICE_DLL: Myrati.BackofficeService.API.dll
+    container_name: myrati-backoffice-service
     depends_on:
       - postgres
     environment:
@@ -26,8 +29,103 @@ services:
       Jwt__Issuer: ${MYRATI_JWT_ISSUER:-Myrati}
       Jwt__Audience: ${MYRATI_JWT_AUDIENCE:-Myrati.Backoffice}
       Jwt__Key: ${MYRATI_JWT_KEY:-CHANGE_THIS_FOR_A_LONG_RANDOM_SECRET_KEY_32+}
+      Email__FrontendBaseUrl: ${MYRATI_EMAIL_FRONTEND_URL:-http://localhost:4173}
+      Email__SenderName: ${MYRATI_EMAIL_SENDER_NAME:-Myrati}
+      Email__SenderEmail: ${MYRATI_EMAIL_SENDER_ADDRESS:-}
+      Email__Gmail__ClientId: ${MYRATI_GMAIL_CLIENT_ID:-}
+      Email__Gmail__ClientSecret: ${MYRATI_GMAIL_CLIENT_SECRET:-}
+      Email__Gmail__RefreshToken: ${MYRATI_GMAIL_REFRESH_TOKEN:-}
     ports:
-      - "8080:8080"
+      - "${MYRATI_BACKOFFICE_SERVICE_PORT:-5120}:8080"
+
+  identity-service:
+    build:
+      context: .
+      dockerfile: ./src/ServiceHost.Dockerfile
+      args:
+        SERVICE_PROJECT: src/Myrati.IdentityService.API/Myrati.IdentityService.API.csproj
+        SERVICE_DLL: Myrati.IdentityService.API.dll
+    container_name: myrati-identity-service
+    depends_on:
+      - backoffice-service
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__MyratiDb: ${MYRATI_DB_CONNECTION:-Host=postgres;Port=5432;Database=myrati;Username=postgres;Password=postgres}
+      Jwt__Issuer: ${MYRATI_JWT_ISSUER:-Myrati}
+      Jwt__Audience: ${MYRATI_JWT_AUDIENCE:-Myrati.Backoffice}
+      Jwt__Key: ${MYRATI_JWT_KEY:-CHANGE_THIS_FOR_A_LONG_RANDOM_SECRET_KEY_32+}
+      Email__FrontendBaseUrl: ${MYRATI_EMAIL_FRONTEND_URL:-http://localhost:4173}
+      Email__SenderName: ${MYRATI_EMAIL_SENDER_NAME:-Myrati}
+      Email__SenderEmail: ${MYRATI_EMAIL_SENDER_ADDRESS:-}
+      Email__Gmail__ClientId: ${MYRATI_GMAIL_CLIENT_ID:-}
+      Email__Gmail__ClientSecret: ${MYRATI_GMAIL_CLIENT_SECRET:-}
+      Email__Gmail__RefreshToken: ${MYRATI_GMAIL_REFRESH_TOKEN:-}
+    ports:
+      - "${MYRATI_IDENTITY_SERVICE_PORT:-5119}:8080"
+
+  public-service:
+    build:
+      context: .
+      dockerfile: ./src/ServiceHost.Dockerfile
+      args:
+        SERVICE_PROJECT: src/Myrati.PublicService.API/Myrati.PublicService.API.csproj
+        SERVICE_DLL: Myrati.PublicService.API.dll
+    container_name: myrati-public-service
+    depends_on:
+      - backoffice-service
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__MyratiDb: ${MYRATI_DB_CONNECTION:-Host=postgres;Port=5432;Database=myrati;Username=postgres;Password=postgres}
+      Jwt__Issuer: ${MYRATI_JWT_ISSUER:-Myrati}
+      Jwt__Audience: ${MYRATI_JWT_AUDIENCE:-Myrati.Backoffice}
+      Jwt__Key: ${MYRATI_JWT_KEY:-CHANGE_THIS_FOR_A_LONG_RANDOM_SECRET_KEY_32+}
+    ports:
+      - "${MYRATI_PUBLIC_SERVICE_PORT:-5121}:8080"
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: ./src/ServiceHost.Dockerfile
+      args:
+        SERVICE_PROJECT: src/Myrati.NotificationService.API/Myrati.NotificationService.API.csproj
+        SERVICE_DLL: Myrati.NotificationService.API.dll
+    container_name: myrati-notification-service
+    depends_on:
+      - backoffice-service
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__MyratiDb: ${MYRATI_DB_CONNECTION:-Host=postgres;Port=5432;Database=myrati;Username=postgres;Password=postgres}
+      Jwt__Issuer: ${MYRATI_JWT_ISSUER:-Myrati}
+      Jwt__Audience: ${MYRATI_JWT_AUDIENCE:-Myrati.Backoffice}
+      Jwt__Key: ${MYRATI_JWT_KEY:-CHANGE_THIS_FOR_A_LONG_RANDOM_SECRET_KEY_32+}
+    ports:
+      - "${MYRATI_NOTIFICATION_SERVICE_PORT:-5122}:8080"
+
+  gateway:
+    build:
+      context: .
+      dockerfile: ./src/ServiceHost.Dockerfile
+      args:
+        SERVICE_PROJECT: src/Myrati.Gateway.API/Myrati.Gateway.API.csproj
+        SERVICE_DLL: Myrati.Gateway.API.dll
+    container_name: myrati-gateway
+    depends_on:
+      - identity-service
+      - backoffice-service
+      - notification-service
+      - public-service
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ReverseProxy__Clusters__identityService__Destinations__destination1__Address: http://identity-service:8080/
+      ReverseProxy__Clusters__backofficeService__Destinations__destination1__Address: http://backoffice-service:8080/
+      ReverseProxy__Clusters__notificationService__Destinations__destination1__Address: http://notification-service:8080/
+      ReverseProxy__Clusters__publicService__Destinations__destination1__Address: http://public-service:8080/
+    ports:
+      - "${MYRATI_GATEWAY_PORT:-5118}:8080"
 
 volumes:
   myrati-postgres-data:

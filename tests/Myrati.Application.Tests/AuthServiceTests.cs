@@ -51,7 +51,9 @@ public sealed class AuthServiceTests
             passwordHasher,
             new StubJwtTokenService(),
             validator,
-            new TestRealtimeEventPublisher());
+            new PasswordSetupRequestValidator(),
+            new TestRealtimeEventPublisher(),
+            new TestBackofficeNotificationPublisher());
 
         var response = await service.LoginAsync(new LoginRequest("admin@myrati.com", "Myrati@123"));
 

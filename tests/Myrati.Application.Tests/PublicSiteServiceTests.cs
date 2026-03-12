@@ -14,7 +14,11 @@ public sealed class PublicSiteServiceTests
     {
         await using var scope = await SeededDbContextScope.CreateAsync();
         var publisher = new TestRealtimeEventPublisher();
-        var service = new PublicSiteService(scope.Context, new ContactRequestValidator(), publisher);
+        var service = new PublicSiteService(
+            scope.Context,
+            new ContactRequestValidator(),
+            publisher,
+            new TestBackofficeNotificationPublisher());
 
         await service.SubmitContactAsync(new ContactRequest(
             "Fulano da Silva",

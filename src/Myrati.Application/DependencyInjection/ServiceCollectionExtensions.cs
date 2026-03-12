@@ -16,6 +16,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUsersService, UsersService>();
         services.AddScoped<ISettingsService, SettingsService>();
         services.AddScoped<IProfileService, ProfileService>();
+        services.AddScoped<INotificationsService, NotificationsService>();
+        services.AddScoped<IBackofficeNotificationPublisher, BackofficeNotificationPublisher>();
+        services.AddScoped<IPortalService, PortalService>();
         services.AddScoped<IPublicSiteService, PublicSiteService>();
         services.AddScoped<ILicenseActivationService, LicenseActivationService>();
         return services;

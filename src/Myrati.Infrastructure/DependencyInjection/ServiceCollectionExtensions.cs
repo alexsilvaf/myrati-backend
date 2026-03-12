@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Myrati.Application.Abstractions;
 using Myrati.Application.Realtime;
+using Myrati.Infrastructure.Email;
 using Myrati.Infrastructure.Persistence;
 using Myrati.Infrastructure.Realtime;
 using Myrati.Infrastructure.Seeding;
@@ -32,6 +33,18 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMyratiDbContext>(provider => provider.GetRequiredService<MyratiDbContext>());
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
+        services.AddHttpClient(nameof(GmailPasswordSetupEmailSender));
+
+        var passwordSetupEmailOptions = PasswordSetupEmailOptions.FromConfiguration(configuration);
+        if (passwordSetupEmailOptions.HasGmailConfiguration)
+        {
+            services.AddScoped<IPasswordSetupEmailSender, GmailPasswordSetupEmailSender>();
+        }
+        else
+        {
+            services.AddScoped<IPasswordSetupEmailSender, LoggingPasswordSetupEmailSender>();
+        }
+
         services.AddScoped<MyratiDbSeeder>();
         services.AddSingleton<InMemoryRealtimeEventHub>();
         services.AddSingleton<IRealtimeEventPublisher>(provider => provider.GetRequiredService<InMemoryRealtimeEventHub>());

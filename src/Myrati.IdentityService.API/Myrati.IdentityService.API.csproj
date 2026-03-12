@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\Myrati.ServiceDefaults\Myrati.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Myrati.API\Myrati.API.csproj"
+                      AdditionalProperties="MyratiSuppressApiAppSettings=true" />
+  </ItemGroup>
+</Project>

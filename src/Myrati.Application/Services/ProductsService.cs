@@ -24,7 +24,8 @@ public sealed class ProductsService(
     IValidator<UpdateProductTaskRequest> updateTaskValidator,
     IValidator<AddProductCollaboratorRequest> addCollaboratorValidator,
     IValidator<UpdateProductCollaboratorRequest> updateCollaboratorValidator,
-    IRealtimeEventPublisher realtimeEventPublisher) : IProductsService
+    IRealtimeEventPublisher realtimeEventPublisher,
+    IBackofficeNotificationPublisher backofficeNotificationPublisher) : IProductsService
 {
     private static readonly string[] KanbanColumnOrder = ["backlog", "todo", "in_progress", "review", "done"];
     private const string DeveloperRole = "Desenvolvedor";
@@ -1268,10 +1269,13 @@ public sealed class ProductsService(
             new ProductPermissionSetDto(collaborator.LicensesView, collaborator.LicensesCreate, collaborator.LicensesEdit, collaborator.LicensesDelete),
             new ProductPermissionSetDto(collaborator.ProductView, collaborator.ProductCreate, collaborator.ProductEdit, collaborator.ProductDelete));
 
-    private ValueTask PublishBackofficeEventAsync(string eventType, object payload, CancellationToken cancellationToken) =>
-        realtimeEventPublisher.PublishAsync(
+    private async ValueTask PublishBackofficeEventAsync(string eventType, object payload, CancellationToken cancellationToken)
+    {
+        await realtimeEventPublisher.PublishAsync(
             new RealtimeEvent(RealtimeChannels.Backoffice, eventType, DateTimeOffset.UtcNow, payload),
             cancellationToken);
+        await backofficeNotificationPublisher.PublishAsync(eventType, payload, cancellationToken);
+    }
 
     private enum ProductPermissionScope
     {

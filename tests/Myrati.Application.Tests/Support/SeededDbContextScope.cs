@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Myrati.Infrastructure.Persistence;
 using Myrati.Infrastructure.Seeding;
 using Myrati.Infrastructure.Security;
@@ -32,7 +33,13 @@ public sealed class SeededDbContextScope : IAsyncDisposable
 
         if (seed)
         {
-            var seeder = new MyratiDbSeeder(new PasswordHasher());
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Seeding:IncludeDemoData"] = "true"
+                })
+                .Build();
+            var seeder = new MyratiDbSeeder(new PasswordHasher(), configuration);
             await seeder.SeedAsync(context);
         }
 

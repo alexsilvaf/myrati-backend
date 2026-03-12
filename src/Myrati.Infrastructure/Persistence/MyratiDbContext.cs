@@ -3,6 +3,7 @@ using Myrati.Application.Abstractions;
 using Myrati.Domain.Clients;
 using Myrati.Domain.Dashboard;
 using Myrati.Domain.Identity;
+using Myrati.Domain.Notifications;
 using Myrati.Domain.Products;
 using Myrati.Domain.Public;
 using Myrati.Domain.Settings;
@@ -13,6 +14,7 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     : DbContext(options), IMyratiDbContext
 {
     public DbSet<AdminUser> AdminUsersSet => Set<AdminUser>();
+    public DbSet<PasswordSetupToken> PasswordSetupTokensSet => Set<PasswordSetupToken>();
     public DbSet<ProfileSession> ProfileSessionsSet => Set<ProfileSession>();
     public DbSet<ProfileActivity> ProfileActivitiesSet => Set<ProfileActivity>();
     public DbSet<Product> ProductsSet => Set<Product>();
@@ -32,8 +34,10 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     public DbSet<SystemIncident> SystemIncidentsSet => Set<SystemIncident>();
     public DbSet<UptimeSample> UptimeSamplesSet => Set<UptimeSample>();
     public DbSet<ContactLead> ContactLeadsSet => Set<ContactLead>();
+    public DbSet<AdminNotification> AdminNotificationsSet => Set<AdminNotification>();
 
     IQueryable<AdminUser> IMyratiDbContext.AdminUsers => AdminUsersSet;
+    IQueryable<PasswordSetupToken> IMyratiDbContext.PasswordSetupTokens => PasswordSetupTokensSet;
     IQueryable<ProfileSession> IMyratiDbContext.ProfileSessions => ProfileSessionsSet;
     IQueryable<ProfileActivity> IMyratiDbContext.ProfileActivities => ProfileActivitiesSet;
     IQueryable<Product> IMyratiDbContext.Products => ProductsSet;
@@ -53,6 +57,7 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     IQueryable<SystemIncident> IMyratiDbContext.SystemIncidents => SystemIncidentsSet;
     IQueryable<UptimeSample> IMyratiDbContext.UptimeSamples => UptimeSamplesSet;
     IQueryable<ContactLead> IMyratiDbContext.ContactLeads => ContactLeadsSet;
+    IQueryable<AdminNotification> IMyratiDbContext.AdminNotifications => AdminNotificationsSet;
 
     Task IMyratiDbContext.AddAsync<T>(T entity, CancellationToken cancellationToken) =>
         Set<T>().AddAsync(entity, cancellationToken).AsTask();
@@ -88,6 +93,20 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
                 .WithOne(x => x.Member)
                 .HasForeignKey(x => x.MemberId)
                 .OnDelete(DeleteBehavior.Cascade);
+            builder.HasMany(x => x.PasswordSetupTokens)
+                .WithOne(x => x.AdminUser)
+                .HasForeignKey(x => x.AdminUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PasswordSetupToken>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.AdminUserId).HasMaxLength(40);
+            builder.Property(x => x.TokenHash).HasMaxLength(128);
+            builder.HasIndex(x => x.TokenHash).IsUnique();
+            builder.HasIndex(x => x.AdminUserId);
         });
 
         modelBuilder.Entity<ProfileSession>(builder =>
@@ -316,6 +335,23 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
             builder.Property(x => x.Company).HasMaxLength(160);
             builder.Property(x => x.Subject).HasMaxLength(120);
             builder.Property(x => x.Message).HasMaxLength(2000);
+        });
+
+        modelBuilder.Entity<AdminNotification>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.RecipientAdminUserId).HasMaxLength(40);
+            builder.Property(x => x.EventType).HasMaxLength(80);
+            builder.Property(x => x.Title).HasMaxLength(160);
+            builder.Property(x => x.Description).HasMaxLength(500);
+            builder.Property(x => x.Type).HasMaxLength(20);
+            builder.HasOne<AdminUser>()
+                .WithMany()
+                .HasForeignKey(x => x.RecipientAdminUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            builder.HasIndex(x => new { x.RecipientAdminUserId, x.CreatedAt });
+            builder.HasIndex(x => new { x.RecipientAdminUserId, x.ReadAt });
         });
 
         base.OnModelCreating(modelBuilder);

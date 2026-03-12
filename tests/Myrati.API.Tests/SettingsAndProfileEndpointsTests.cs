@@ -149,4 +149,59 @@ public sealed class SettingsAndProfileEndpointsTests(CustomWebApplicationFactory
             new ChangePasswordRequest("Myrati@456", "Myrati@123", "Myrati@123"));
         Assert.Equal(HttpStatusCode.NoContent, restorePasswordResponse.StatusCode);
     }
+
+    [Fact]
+    public async Task TeamMemberInvitationFlow_AllowsPasswordSetupAndLogin()
+    {
+        factory.PasswordSetupEmailSender.Reset();
+        var suffix = Guid.NewGuid().ToString("N")[..6];
+        var invitedEmail = $"convite-{suffix}@myrati.com";
+        const string invitedPassword = "Convite@123";
+
+        using var adminClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var adminAuth = await adminClient.LoginAsAdminAsync();
+        adminClient.UseBearerToken(adminAuth.AccessToken);
+
+        var createTeamMemberResponse = await adminClient.PostAsJsonAsync(
+            "/api/v1/backoffice/settings/team-members",
+            new CreateTeamMemberRequest(
+                $"Convidado {suffix}",
+                invitedEmail,
+                "Vendedor"));
+        createTeamMemberResponse.EnsureSuccessStatusCode();
+
+        var invitation = factory.PasswordSetupEmailSender.FindByEmail(invitedEmail);
+        Assert.NotNull(invitation);
+
+        using var publicClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var passwordSetupSessionResponse = await publicClient.GetAsync(
+            $"/api/v1/auth/password-setup?token={Uri.EscapeDataString(invitation.Token)}");
+        passwordSetupSessionResponse.EnsureSuccessStatusCode();
+
+        var passwordSetupSession = await passwordSetupSessionResponse.Content.ReadFromJsonAsync<PasswordSetupSessionDto>();
+        Assert.NotNull(passwordSetupSession);
+        Assert.Equal(invitedEmail, passwordSetupSession.Email);
+
+        var completePasswordSetupResponse = await publicClient.PostAsJsonAsync(
+            "/api/v1/auth/password-setup",
+            new PasswordSetupRequest(invitation.Token, invitedPassword, invitedPassword));
+        Assert.Equal(HttpStatusCode.NoContent, completePasswordSetupResponse.StatusCode);
+
+        var loginResponse = await publicClient.PostAsJsonAsync(
+            "/api/v1/auth/login",
+            new LoginRequest(invitedEmail, invitedPassword));
+        loginResponse.EnsureSuccessStatusCode();
+
+        var auth = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(auth);
+        Assert.Equal(invitedEmail, auth.User.Email);
+    }
 }

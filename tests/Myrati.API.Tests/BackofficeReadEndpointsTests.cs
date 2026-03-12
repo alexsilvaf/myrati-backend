@@ -60,6 +60,23 @@ public sealed class BackofficeReadEndpointsTests(CustomWebApplicationFactory fac
         profileResponse.EnsureSuccessStatusCode();
         var profile = await profileResponse.Content.ReadFromJsonAsync<ProfileSnapshotDto>();
 
+        var notificationSuffix = Guid.NewGuid().ToString("N")[..8];
+        var notificationSeedResponse = await client.PostAsJsonAsync(
+            "/api/v1/backoffice/clients",
+            new CreateClientRequest(
+                $"Cliente Snapshot {notificationSuffix}",
+                $"snapshot-{notificationSuffix}@myrati.com",
+                "(11) 90000-0001",
+                $"99.{notificationSuffix[..3]}.{notificationSuffix[3..6]}/0001-{notificationSuffix[6..8]}",
+                "CNPJ",
+                $"Cliente Snapshot Company {notificationSuffix}",
+                "Ativo"));
+        notificationSeedResponse.EnsureSuccessStatusCode();
+
+        var notificationsResponse = await client.GetAsync("/api/v1/backoffice/notifications?limit=12");
+        notificationsResponse.EnsureSuccessStatusCode();
+        var notifications = await notificationsResponse.Content.ReadFromJsonAsync<NotificationFeedDto>();
+
         Assert.NotNull(me);
         Assert.Equal("admin@myrati.com", me.Email);
 
@@ -101,5 +118,9 @@ public sealed class BackofficeReadEndpointsTests(CustomWebApplicationFactory fac
         Assert.Equal("admin@myrati.com", profile.Profile.Email);
         Assert.NotEmpty(profile.ActiveSessions);
         Assert.NotEmpty(profile.ActivityLog);
+
+        Assert.NotNull(notifications);
+        Assert.NotEmpty(notifications.Items);
+        Assert.True(notifications.UnreadCount >= 1);
     }
 }

@@ -8,7 +8,7 @@ public sealed class AdminUser : Entity
     public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
-    public string Role { get; set; } = "Viewer";
+    public string Role { get; set; } = "Vendedor";
     public string Status { get; set; } = "Ativo";
     public string Department { get; set; } = string.Empty;
     public string Location { get; set; } = string.Empty;
@@ -18,4 +18,5 @@ public sealed class AdminUser : Entity
     public ICollection<ProfileSession> Sessions { get; set; } = new List<ProfileSession>();
     public ICollection<ProfileActivity> Activities { get; set; } = new List<ProfileActivity>();
     public ICollection<ProductCollaborator> ProductCollaborations { get; set; } = new List<ProductCollaborator>();
+    public ICollection<PasswordSetupToken> PasswordSetupTokens { get; set; } = new List<PasswordSetupToken>();
 }

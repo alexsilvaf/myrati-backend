@@ -17,7 +17,8 @@ public sealed class ClientsServiceTests
             scope.Context,
             new CreateClientRequestValidator(),
             new UpdateClientRequestValidator(),
-            publisher);
+            publisher,
+            new TestBackofficeNotificationPublisher());
 
         await Assert.ThrowsAsync<ConflictException>(() => service.DeleteClientAsync("CLI-001"));
         Assert.Empty(publisher.Events);

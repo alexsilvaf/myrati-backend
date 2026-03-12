@@ -18,7 +18,8 @@ public sealed class ProfileServiceTests
             new PasswordHasher(),
             new UpdateProfileRequestValidator(),
             new ChangePasswordRequestValidator(),
-            publisher);
+            publisher,
+            new TestBackofficeNotificationPublisher());
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.ChangePasswordAsync(

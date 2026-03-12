@@ -5,5 +5,5 @@ obj/
 TestResults/
 .env
 coverage/
-src/Myrati.API/appsettings.Local.json
-src/Myrati.API/appsettings.*.Local.json
+src/*/appsettings.Local.json
+src/*/appsettings.*.Local.json

@@ -125,7 +125,8 @@ public sealed class ProductsServiceTests
             new UpdateProductTaskRequestValidator(),
             new AddProductCollaboratorRequestValidator(),
             new UpdateProductCollaboratorRequestValidator(),
-            publisher);
+            publisher,
+            new TestBackofficeNotificationPublisher());
 
     private sealed class StubCurrentUserContext(string userId, string email, string role) : Myrati.Application.Abstractions.ICurrentUserContext
     {

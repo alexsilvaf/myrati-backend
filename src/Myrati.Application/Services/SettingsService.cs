@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Myrati.Application.Abstractions;
@@ -13,12 +15,16 @@ namespace Myrati.Application.Services;
 public sealed class SettingsService(
     IMyratiDbContext dbContext,
     IPasswordHasher passwordHasher,
+    IPasswordSetupEmailSender passwordSetupEmailSender,
     IValidator<UpdateSettingsRequest> updateSettingsValidator,
     IValidator<CreateApiKeyRequest> createApiKeyValidator,
     IValidator<CreateTeamMemberRequest> createTeamMemberValidator,
     IValidator<UpdateTeamMemberRequest> updateTeamMemberValidator,
-    IRealtimeEventPublisher realtimeEventPublisher) : ISettingsService
+    IRealtimeEventPublisher realtimeEventPublisher,
+    IBackofficeNotificationPublisher backofficeNotificationPublisher) : ISettingsService
 {
+    private static readonly TimeSpan PasswordSetupTokenLifetime = TimeSpan.FromHours(72);
+
     public async Task<SettingsSnapshotDto> GetAsync(CancellationToken cancellationToken = default)
     {
         var settings = await GetOrCreateSettingsAsync(cancellationToken);
@@ -159,9 +165,28 @@ public sealed class SettingsService(
             PasswordHash = passwordHasher.Hash(IdGenerator.GenerateSecret(16)),
             IsPrimaryAccount = false
         };
+        var passwordSetupTokenId = IdGenerator.NextPrefixedId(
+            "PST-",
+            await dbContext.PasswordSetupTokens.Select(x => x.Id).ToListAsync(cancellationToken));
+        var passwordSetupToken = GeneratePasswordSetupToken();
+        var expiresAt = DateTimeOffset.UtcNow.Add(PasswordSetupTokenLifetime);
 
         await dbContext.AddAsync(teamMember, cancellationToken);
+        await dbContext.AddAsync(new PasswordSetupToken
+        {
+            Id = passwordSetupTokenId,
+            AdminUserId = teamMemberId,
+            TokenHash = ComputeTokenHash(passwordSetupToken),
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = expiresAt
+        }, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await passwordSetupEmailSender.SendAsync(
+            teamMember.Name,
+            teamMember.Email,
+            passwordSetupToken,
+            expiresAt,
+            cancellationToken);
 
         var response = MapTeamMember(teamMember);
         await PublishBackofficeEventAsync("team-member.created", response, cancellationToken);
@@ -222,6 +247,15 @@ public sealed class SettingsService(
             dbContext.Remove(activity);
         }
 
+        var passwordSetupTokens = await dbContext.PasswordSetupTokens
+            .Where(x => x.AdminUserId == teamMemberId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var passwordSetupToken in passwordSetupTokens)
+        {
+            dbContext.Remove(passwordSetupToken);
+        }
+
         dbContext.Remove(teamMember);
         await dbContext.SaveChangesAsync(cancellationToken);
         await PublishBackofficeEventAsync(
@@ -241,12 +275,12 @@ public sealed class SettingsService(
         settings = new CompanySettings
         {
             Id = "CFG-001",
-            CompanyName = "Myrati Tecnologia",
-            Cnpj = "12.345.678/0001-90",
-            ContactEmail = "contato@myrati.com",
-            ContactPhone = "(11) 99999-0000",
-            Address = "Rua da Inovacao, 123",
-            City = "Sao Paulo / SP",
+            CompanyName = "Myrati",
+            Cnpj = string.Empty,
+            ContactEmail = string.Empty,
+            ContactPhone = string.Empty,
+            Address = string.Empty,
+            City = string.Empty,
             Language = "pt-BR",
             Timezone = "America/Sao_Paulo",
             EmailNotifications = true,
@@ -320,8 +354,17 @@ public sealed class SettingsService(
     private static TeamMemberDto MapTeamMember(AdminUser teamMember) =>
         new(teamMember.Id, teamMember.Name, teamMember.Email, teamMember.Role, teamMember.Status);
 
-    private ValueTask PublishBackofficeEventAsync(string eventType, object payload, CancellationToken cancellationToken) =>
-        realtimeEventPublisher.PublishAsync(
+    private static string GeneratePasswordSetupToken() =>
+        Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
+    private static string ComputeTokenHash(string token) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+    private async ValueTask PublishBackofficeEventAsync(string eventType, object payload, CancellationToken cancellationToken)
+    {
+        await realtimeEventPublisher.PublishAsync(
             new RealtimeEvent(RealtimeChannels.Backoffice, eventType, DateTimeOffset.UtcNow, payload),
             cancellationToken);
+        await backofficeNotificationPublisher.PublishAsync(eventType, payload, cancellationToken);
+    }
 }

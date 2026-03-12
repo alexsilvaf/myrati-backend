@@ -14,7 +14,8 @@ public sealed class ProfileService(
     IPasswordHasher passwordHasher,
     IValidator<UpdateProfileRequest> updateProfileValidator,
     IValidator<ChangePasswordRequest> changePasswordValidator,
-    IRealtimeEventPublisher realtimeEventPublisher) : IProfileService
+    IRealtimeEventPublisher realtimeEventPublisher,
+    IBackofficeNotificationPublisher backofficeNotificationPublisher) : IProfileService
 {
     public async Task<ProfileSnapshotDto> GetAsync(string email, CancellationToken cancellationToken = default)
     {
@@ -160,8 +161,11 @@ public sealed class ProfileService(
         }, cancellationToken);
     }
 
-    private ValueTask PublishBackofficeEventAsync(string eventType, object payload, CancellationToken cancellationToken) =>
-        realtimeEventPublisher.PublishAsync(
+    private async ValueTask PublishBackofficeEventAsync(string eventType, object payload, CancellationToken cancellationToken)
+    {
+        await realtimeEventPublisher.PublishAsync(
             new RealtimeEvent(RealtimeChannels.Backoffice, eventType, DateTimeOffset.UtcNow, payload),
             cancellationToken);
+        await backofficeNotificationPublisher.PublishAsync(eventType, payload, cancellationToken);
+    }
 }

@@ -13,7 +13,8 @@ public sealed class ClientsService(
     IMyratiDbContext dbContext,
     IValidator<CreateClientRequest> createClientValidator,
     IValidator<UpdateClientRequest> updateClientValidator,
-    IRealtimeEventPublisher realtimeEventPublisher) : IClientsService
+    IRealtimeEventPublisher realtimeEventPublisher,
+    IBackofficeNotificationPublisher backofficeNotificationPublisher) : IClientsService
 {
     public async Task<IReadOnlyCollection<ClientSummaryDto>> GetClientsAsync(CancellationToken cancellationToken = default)
     {
@@ -246,8 +247,11 @@ public sealed class ClientsService(
             }).ToArray());
     }
 
-    private ValueTask PublishBackofficeEventAsync(string eventType, object payload, CancellationToken cancellationToken) =>
-        realtimeEventPublisher.PublishAsync(
+    private async ValueTask PublishBackofficeEventAsync(string eventType, object payload, CancellationToken cancellationToken)
+    {
+        await realtimeEventPublisher.PublishAsync(
             new RealtimeEvent(RealtimeChannels.Backoffice, eventType, DateTimeOffset.UtcNow, payload),
             cancellationToken);
+        await backofficeNotificationPublisher.PublishAsync(eventType, payload, cancellationToken);
+    }
 }

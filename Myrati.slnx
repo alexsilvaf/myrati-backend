@@ -2,8 +2,14 @@
   <Folder Name="/src/">
     <Project Path="src/Myrati.API/Myrati.API.csproj" />
     <Project Path="src/Myrati.Application/Myrati.Application.csproj" />
+    <Project Path="src/Myrati.BackofficeService.API/Myrati.BackofficeService.API.csproj" />
     <Project Path="src/Myrati.Domain/Myrati.Domain.csproj" />
+    <Project Path="src/Myrati.Gateway.API/Myrati.Gateway.API.csproj" />
+    <Project Path="src/Myrati.IdentityService.API/Myrati.IdentityService.API.csproj" />
     <Project Path="src/Myrati.Infrastructure/Myrati.Infrastructure.csproj" />
+    <Project Path="src/Myrati.NotificationService.API/Myrati.NotificationService.API.csproj" />
+    <Project Path="src/Myrati.PublicService.API/Myrati.PublicService.API.csproj" />
+    <Project Path="src/Myrati.ServiceDefaults/Myrati.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Myrati.API.Tests/Myrati.API.Tests.csproj" />
