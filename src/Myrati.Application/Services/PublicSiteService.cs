@@ -87,11 +87,13 @@ public sealed class PublicSiteService(
             .OrderBy(x => x.SortOrder)
             .ToListAsync(cancellationToken);
 
-        var overallStatus = services.All(x => x.Status == "operational")
-            ? "Todos os sistemas operacionais"
-            : services.Any(x => x.Status == "outage")
-                ? "Interrupcao detectada"
-                : "Degradacao parcial detectada";
+        var overallStatus = services.Count switch
+        {
+            0 => "Monitoramento em configuracao",
+            _ when services.All(x => x.Status == "operational") => "Todos os sistemas operacionais",
+            _ when services.Any(x => x.Status == "outage") => "Interrupcao detectada",
+            _ => "Degradacao parcial detectada"
+        };
 
         return new SystemStatusResponse(
             overallStatus,

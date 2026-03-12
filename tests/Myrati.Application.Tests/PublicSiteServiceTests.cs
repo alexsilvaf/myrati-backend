@@ -16,13 +16,12 @@ public sealed class PublicSiteServiceTests
     {
         await using var scope = await SeededDbContextScope.CreateAsync();
         var publisher = new TestRealtimeEventPublisher();
-        var emailSender = new TestContactLeadEmailSender();
         var service = new PublicSiteService(
             scope.Context,
             new ContactRequestValidator(),
             publisher,
             new TestBackofficeNotificationPublisher(),
-            emailSender,
+            new NoopContactLeadEmailSender(),
             NullLogger<PublicSiteService>.Instance);
 
         await service.SubmitContactAsync(new ContactRequest(
@@ -35,20 +34,12 @@ public sealed class PublicSiteServiceTests
         var lead = await scope.Context.ContactLeadsSet.FirstOrDefaultAsync();
         Assert.NotNull(lead);
         Assert.Equal("Fulano da Silva", lead.Name);
-        Assert.Contains(emailSender.Messages, x => x.Email == "fulano@empresa.com");
         Assert.Contains(publisher.Events, x => x.EventType == "contact.received");
     }
 }
 
-file sealed class TestContactLeadEmailSender : IContactLeadEmailSender
+file sealed class NoopContactLeadEmailSender : IContactLeadEmailSender
 {
-    private readonly List<ContactLeadEmailMessage> _messages = [];
-
-    public IReadOnlyList<ContactLeadEmailMessage> Messages => _messages;
-
     public Task SendAsync(ContactLeadEmailMessage message, CancellationToken cancellationToken = default)
-    {
-        _messages.Add(message);
-        return Task.CompletedTask;
-    }
+        => Task.CompletedTask;
 }

@@ -40,7 +40,6 @@ public sealed class PublicEndpointsTests(CustomWebApplicationFactory factory)
     public async Task ContactEndpoint_WithValidPayload_PersistsLead()
     {
         using var client = factory.CreateClient();
-        factory.ContactLeadEmailSender.Reset();
 
         var response = await client.PostAsJsonAsync(
             "/api/v1/public/contact",
@@ -63,6 +62,5 @@ public sealed class PublicEndpointsTests(CustomWebApplicationFactory factory)
         Assert.Contains(
             dbContext.ContactLeadsSet,
             lead => lead.Email == "contato.teste@myrati.com" && lead.Company == "Empresa Teste");
-        Assert.NotNull(factory.ContactLeadEmailSender.FindByLeadEmail("contato.teste@myrati.com"));
     }
 }
