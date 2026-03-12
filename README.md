@@ -1896,7 +1896,7 @@ Produtos e planos · Clientes · Licenças · Usuários conectados · Dashboard 
 - Trate leituras e escritas a partir dos serviços, não direto nos controllers
 - Ao alterar dados do painel, avalie se precisa publicar evento SSE
 - Rotas públicas devem ter rate limit
-- Rotas autenticadas devem usar `BackofficeRead` ou `BackofficeWrite` explicitamente
+- Rotas autenticadas devem usar política explícita (`BackofficeRead`, `BackofficeWrite` ou política dedicada, como `PortalRead`)
 
 ### Checklist antes de concluir
 

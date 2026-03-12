@@ -6,7 +6,7 @@ using Myrati.Application.Services;
 namespace Myrati.API.Controllers;
 
 [ApiController]
-[Authorize]
+[Authorize(Policy = "PortalRead")]
 [Route("api/v1/portal")]
 public sealed class PortalController(IPortalService portalService) : ControllerBase
 {
