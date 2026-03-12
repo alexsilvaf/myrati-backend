@@ -262,7 +262,17 @@ MYRATI_DB_CONNECTION=Host=postgres;Port=5432;Database=myrati;Username=postgres;P
 MYRATI_JWT_ISSUER=Myrati
 MYRATI_JWT_AUDIENCE=Myrati.Backoffice
 MYRATI_JWT_KEY=CHANGE_THIS_FOR_A_LONG_RANDOM_SECRET_KEY_32+
+MYRATI_EMAIL_FRONTEND_URL=http://localhost:4173
+MYRATI_EMAIL_SENDER_NAME=Myrati
+MYRATI_EMAIL_SENDER_ADDRESS=
+MYRATI_EMAIL_LEAD_RECIPIENT_NAME=Yasmin
+MYRATI_EMAIL_LEAD_RECIPIENT_ADDRESS=yasmin@myrati.com.br
+MYRATI_GMAIL_CLIENT_ID=
+MYRATI_GMAIL_CLIENT_SECRET=
+MYRATI_GMAIL_REFRESH_TOKEN=
 ```
+
+> O formulário público de contato encaminha o lead para `Email:LeadRecipientEmail`, que por padrão é `yasmin@myrati.com.br`. Sem credenciais Gmail válidas, o backend persiste o lead e registra o conteúdo em log como fallback.
 
 ### Arquivos locais de configuração
 
@@ -1574,7 +1584,7 @@ Valida se uma licença pertence ao produto informado e se pode ser ativada. Veri
 
 #### `POST /api/v1/public/contact`
 
-Registra um lead de contato a partir do formulário público.
+Registra um lead de contato a partir do formulário público e encaminha os dados para o inbox comercial configurado.
 
 - **Acesso:** Público (rate limit aplicado)
 
@@ -1602,7 +1612,7 @@ Registra um lead de contato a partir do formulário público.
 
 ```json
 {
-  "message": "Mensagem recebida com sucesso"
+  "message": "Mensagem enviada com sucesso."
 }
 ```
 

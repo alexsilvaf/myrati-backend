@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Myrati.Application.Abstractions;
 using Myrati.Application.Common;
 using Myrati.Application.Contracts;
@@ -11,7 +12,9 @@ public sealed class PublicSiteService(
     IMyratiDbContext dbContext,
     FluentValidation.IValidator<ContactRequest> contactValidator,
     IRealtimeEventPublisher realtimeEventPublisher,
-    IBackofficeNotificationPublisher backofficeNotificationPublisher) : IPublicSiteService
+    IBackofficeNotificationPublisher backofficeNotificationPublisher,
+    IContactLeadEmailSender contactLeadEmailSender,
+    ILogger<PublicSiteService> logger) : IPublicSiteService
 {
     public async Task<ContactResponse> SubmitContactAsync(
         ContactRequest request,
@@ -22,6 +25,7 @@ public sealed class PublicSiteService(
         var leadId = IdGenerator.NextPrefixedId(
             "LEAD-",
             await dbContext.ContactLeads.Select(x => x.Id).ToListAsync(cancellationToken));
+        var createdAt = DateTimeOffset.UtcNow;
 
         await dbContext.AddAsync(new ContactLead
         {
@@ -31,10 +35,28 @@ public sealed class PublicSiteService(
             Company = request.Company.Trim(),
             Subject = request.Subject.Trim(),
             Message = request.Message.Trim(),
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = createdAt
         }, cancellationToken);
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await contactLeadEmailSender.SendAsync(
+                new ContactLeadEmailMessage(
+                    leadId,
+                    request.Name.Trim(),
+                    request.Email.Trim(),
+                    request.Company.Trim(),
+                    request.Subject.Trim(),
+                    request.Message.Trim(),
+                    createdAt),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Falha ao enviar lead publico {LeadId} por e-mail.", leadId);
+        }
+
         var payload = new
         {
             Id = leadId,

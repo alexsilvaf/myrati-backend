@@ -17,6 +17,7 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     private string? _databasePath;
 
     public TestPasswordSetupEmailSender PasswordSetupEmailSender { get; } = new();
+    public TestContactLeadEmailSender ContactLeadEmailSender { get; } = new();
 
     static CustomWebApplicationFactory()
     {
@@ -46,8 +47,11 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IPasswordSetupEmailSender>();
+            services.RemoveAll<IContactLeadEmailSender>();
             services.AddSingleton(PasswordSetupEmailSender);
+            services.AddSingleton(ContactLeadEmailSender);
             services.AddSingleton<IPasswordSetupEmailSender>(PasswordSetupEmailSender);
+            services.AddSingleton<IContactLeadEmailSender>(ContactLeadEmailSender);
         });
     }
 

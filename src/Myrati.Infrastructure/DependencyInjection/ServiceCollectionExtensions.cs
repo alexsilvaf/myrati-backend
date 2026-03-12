@@ -34,6 +34,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddHttpClient(nameof(GmailPasswordSetupEmailSender));
+        services.AddHttpClient(nameof(GmailContactLeadEmailSender));
 
         var passwordSetupEmailOptions = PasswordSetupEmailOptions.FromConfiguration(configuration);
         if (passwordSetupEmailOptions.HasGmailConfiguration)
@@ -43,6 +44,16 @@ public static class ServiceCollectionExtensions
         else
         {
             services.AddScoped<IPasswordSetupEmailSender, LoggingPasswordSetupEmailSender>();
+        }
+
+        var contactLeadEmailOptions = ContactLeadEmailOptions.FromConfiguration(configuration);
+        if (contactLeadEmailOptions.HasGmailConfiguration)
+        {
+            services.AddScoped<IContactLeadEmailSender, GmailContactLeadEmailSender>();
+        }
+        else
+        {
+            services.AddScoped<IContactLeadEmailSender, LoggingContactLeadEmailSender>();
         }
 
         services.AddScoped<MyratiDbSeeder>();

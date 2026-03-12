@@ -81,6 +81,14 @@ services:
       Jwt__Issuer: ${MYRATI_JWT_ISSUER:-Myrati}
       Jwt__Audience: ${MYRATI_JWT_AUDIENCE:-Myrati.Backoffice}
       Jwt__Key: ${MYRATI_JWT_KEY:-CHANGE_THIS_FOR_A_LONG_RANDOM_SECRET_KEY_32+}
+      Email__FrontendBaseUrl: ${MYRATI_EMAIL_FRONTEND_URL:-http://localhost:4173}
+      Email__SenderName: ${MYRATI_EMAIL_SENDER_NAME:-Myrati}
+      Email__SenderEmail: ${MYRATI_EMAIL_SENDER_ADDRESS:-}
+      Email__LeadRecipientName: ${MYRATI_EMAIL_LEAD_RECIPIENT_NAME:-Yasmin}
+      Email__LeadRecipientEmail: ${MYRATI_EMAIL_LEAD_RECIPIENT_ADDRESS:-yasmin@myrati.com.br}
+      Email__Gmail__ClientId: ${MYRATI_GMAIL_CLIENT_ID:-}
+      Email__Gmail__ClientSecret: ${MYRATI_GMAIL_CLIENT_SECRET:-}
+      Email__Gmail__RefreshToken: ${MYRATI_GMAIL_REFRESH_TOKEN:-}
     ports:
       - "${MYRATI_PUBLIC_SERVICE_PORT:-5121}:8080"
 
