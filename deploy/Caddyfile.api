@@ -1,0 +1,11 @@
+{$MYRATI_SITE_HOST} {
+  encode zstd gzip
+
+  header {
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "SAMEORIGIN"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+
+  reverse_proxy gateway:8080
+}

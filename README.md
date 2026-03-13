@@ -353,11 +353,87 @@ docker compose up --build
 
 | Serviço | Endereço |
 |---------|----------|
-| PostgreSQL | `localhost:5432` |
+| PostgreSQL | interno à rede Docker |
 | Gateway | `http://localhost:5118` |
 | Identity Service | `http://localhost:5119` |
 | Backoffice Service | `http://localhost:5120` |
 | Public Service | `http://localhost:5121` |
+
+---
+
+## Produção
+
+Para produção em instância única, o compose foi preparado para publicar apenas o frontend na interface pública e deixar PostgreSQL, gateway e microserviços acessíveis apenas em `127.0.0.1`. O container Nginx do frontend faz proxy de `/api/*` internamente para o gateway, evitando CORS no navegador e eliminando a necessidade de expor a API na internet.
+
+### Checklist mínimo antes do deploy
+
+- Defina `MYRATI_JWT_KEY` com um segredo longo e aleatório. Em `Production`, o backend agora falha no startup se a chave padrão ainda estiver configurada.
+- Defina `MYRATI_EMAIL_FRONTEND_URL` com a URL pública real do site, para os links de convite e definição de senha.
+- Defina as credenciais de e-mail (`MYRATI_EMAIL_SENDER_ADDRESS`, `MYRATI_GMAIL_CLIENT_ID`, `MYRATI_GMAIL_CLIENT_SECRET`, `MYRATI_GMAIL_REFRESH_TOKEN`) ou o envio cairá no fallback de log.
+- Se optar por usar a API pelo mesmo domínio do frontend, deixe `MYRATI_FRONTEND_API_URL` vazio.
+- O compose padrão não publica a porta do PostgreSQL. Se precisar acesso administrativo ao banco, use `docker exec`, SSH tunnel ou publique a porta explicitamente só no ambiente necessário.
+
+### Exemplo de variáveis para ambiente real
+
+```env
+MYRATI_JWT_KEY=<segredo-longo-e-aleatorio>
+MYRATI_FRONTEND_BIND=127.0.0.1
+MYRATI_FRONTEND_PORT=4173
+MYRATI_FRONTEND_API_URL=
+MYRATI_EMAIL_FRONTEND_URL=https://app.myrati.com.br
+MYRATI_EMAIL_SENDER_ADDRESS=myratisolucoestecnologicas@gmail.com
+MYRATI_EMAIL_LEAD_RECIPIENT_ADDRESS=yasmin@myrati.com.br
+```
+
+### HTTPS barato com Caddy
+
+Para Lightsail em instância única, o caminho mais barato é evitar o Load Balancer do Lightsail e subir a borda HTTPS no próprio host com Caddy:
+
+```powershell
+docker compose -f .\docker-compose.yml -f .\docker-compose.prod.yml up -d --build
+```
+
+Defina antes:
+
+```env
+MYRATI_SITE_HOST=app.myrati.com.br
+MYRATI_FRONTEND_BIND=127.0.0.1
+MYRATI_FRONTEND_PORT=4173
+MYRATI_FRONTEND_API_URL=
+MYRATI_EMAIL_FRONTEND_URL=https://app.myrati.com.br
+```
+
+### Frontend na Vercel + backend na Lightsail
+
+Se o frontend ficar fora da instância, a topologia recomendada passa a ser:
+
+- `myrati.com.br` na Vercel
+- `api.myrati.com.br` apontando para a Lightsail
+- gateway publicado via Caddy na Lightsail
+- microserviços e PostgreSQL acessíveis só pela rede Docker interna
+
+Arquivos de apoio:
+
+- `docker-compose.yml` para os serviços internos
+- `docker-compose.lightsail.yml` para publicar só o gateway com Caddy
+- `deploy/Caddyfile.api` para terminar TLS e repassar ao gateway
+
+Variáveis recomendadas:
+
+```env
+MYRATI_SITE_HOST=api.myrati.com.br
+MYRATI_EMAIL_FRONTEND_URL=https://myrati.com.br
+MYRATI_CORS_ALLOWED_ORIGIN_0=https://myrati.com.br
+MYRATI_CORS_ALLOWED_ORIGIN_1=https://www.myrati.com.br
+```
+
+Suba na Lightsail com:
+
+```powershell
+docker compose -f .\docker-compose.lightsail.yml up -d --build
+```
+
+O frontend da Vercel deve consumir `https://api.myrati.com.br`. Para isso, o repositório do frontend pode usar `VITE_API_URL=https://api.myrati.com.br` em produção.
 
 ---
 
@@ -369,7 +445,9 @@ docker compose up --build
 |-------|:-:|:-:|
 | **Super Admin** | ✓ | ✓ |
 | **Admin** | ✓ | ✓ |
-| **Viewer** | ✓ | — |
+| **Vendedor** | ✓ | — |
+| **Desenvolvedor** | ✓ | — |
+| **Cliente** | Portal apenas | — |
 
 ### Fluxo
 
@@ -405,7 +483,8 @@ O backend foi preparado para que um agente como Codex ou Claude opere o módulo 
 
 ### Restrições de segurança
 
-- `Viewer` não pode alterar catálogo nem kanban
+- `Vendedor` não pode alterar catálogo nem kanban
+- `Desenvolvedor` pode operar backlog/kanban conforme as políticas de produto
 - O kanban só aceita mutações em produtos com status `Em desenvolvimento`
 - Exclusão de sprint com tarefas vinculadas retorna `409 Conflict`
 - Exclusão de produto com licenças vinculadas retorna `409 Conflict`
@@ -1347,7 +1426,7 @@ Cria um novo membro na equipe administrativa.
 |-------|------|:-----------:|-----------|
 | `name` | string | Sim | — |
 | `email` | string | Sim | E-mail válido |
-| `role` | string | Sim | `Super Admin`, `Admin` ou `Viewer` |
+| `role` | string | Sim | `Admin`, `Vendedor` ou `Desenvolvedor` |
 
 **Response `201 Created`:**
 
@@ -1386,7 +1465,7 @@ Atualiza um membro da equipe.
 |-------|------|:-----------:|-----------|
 | `name` | string | Sim | — |
 | `email` | string | Sim | E-mail válido |
-| `role` | string | Sim | `Super Admin`, `Admin` ou `Viewer` |
+| `role` | string | Sim | `Super Admin`, `Admin`, `Vendedor` ou `Desenvolvedor` |
 | `status` | string | Sim | `Ativo` ou `Convite Pendente` |
 
 **Response `200 OK`:** retorna o `TeamMemberDto` atualizado.
@@ -1761,7 +1840,7 @@ Health check da aplicação.
 | Sprint | `Planejada`, `Ativa`, `Concluída` |
 | Coluna do kanban | `backlog`, `todo`, `in_progress`, `review`, `done` |
 | Prioridade de tarefa | `low`, `medium`, `high`, `critical` |
-| Membro da equipe (role) | `Super Admin`, `Admin`, `Viewer` |
+| Membro da equipe (role) | `Super Admin`, `Admin`, `Vendedor`, `Desenvolvedor`, `Cliente` |
 | Membro da equipe (status) | `Ativo`, `Convite Pendente` |
 | Tipo de documento | `CPF`, `CNPJ` |
 | Ambiente de API Key | `production`, `staging` |

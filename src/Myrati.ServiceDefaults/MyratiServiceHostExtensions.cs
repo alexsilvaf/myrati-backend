@@ -22,6 +22,8 @@ namespace Myrati.ServiceDefaults;
 
 public static class MyratiServiceHostExtensions
 {
+    private const string PlaceholderJwtKey = "CHANGE_THIS_FOR_A_LONG_RANDOM_SECRET_KEY_32+";
+
     public static void AddMyratiServiceHost(
         this WebApplicationBuilder builder,
         string serviceName,
@@ -31,6 +33,8 @@ public static class MyratiServiceHostExtensions
             .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true)
             .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.Local.json", optional: true, reloadOnChange: true)
             .AddEnvironmentVariables();
+
+        ValidateProductionConfiguration(builder.Configuration, builder.Environment.EnvironmentName, serviceName);
 
         builder.Services
             .AddControllers()
@@ -135,6 +139,26 @@ public static class MyratiServiceHostExtensions
         });
 
         builder.Services.AddHealthChecks();
+    }
+
+    private static void ValidateProductionConfiguration(
+        IConfiguration configuration,
+        string environmentName,
+        string serviceName)
+    {
+        if (!string.Equals(environmentName, Environments.Production, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var jwtKey = configuration["Jwt:Key"]?.Trim();
+        if (string.IsNullOrWhiteSpace(jwtKey)
+            || string.Equals(jwtKey, PlaceholderJwtKey, StringComparison.Ordinal)
+            || jwtKey.Length < 32)
+        {
+            throw new InvalidOperationException(
+                $"Jwt:Key inválida para produção no serviço '{serviceName}'. Configure uma chave longa e aleatória via ambiente.");
+        }
     }
 
     public static async Task<WebApplication> BuildMyratiServiceAsync(

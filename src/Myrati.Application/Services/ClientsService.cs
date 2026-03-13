@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Myrati.Application.Abstractions;
@@ -6,16 +8,21 @@ using Myrati.Application.Common.Exceptions;
 using Myrati.Application.Contracts;
 using Myrati.Application.Realtime;
 using Myrati.Domain.Clients;
+using Myrati.Domain.Identity;
 
 namespace Myrati.Application.Services;
 
 public sealed class ClientsService(
     IMyratiDbContext dbContext,
+    IPasswordHasher passwordHasher,
+    IPasswordSetupEmailSender passwordSetupEmailSender,
     IValidator<CreateClientRequest> createClientValidator,
     IValidator<UpdateClientRequest> updateClientValidator,
     IRealtimeEventPublisher realtimeEventPublisher,
     IBackofficeNotificationPublisher backofficeNotificationPublisher) : IClientsService
 {
+    private static readonly TimeSpan PasswordSetupTokenLifetime = TimeSpan.FromHours(72);
+
     public async Task<IReadOnlyCollection<ClientSummaryDto>> GetClientsAsync(CancellationToken cancellationToken = default)
     {
         var clients = await dbContext.Clients
@@ -51,7 +58,7 @@ public sealed class ClientsService(
     public async Task<ClientDetailDto> CreateClientAsync(CreateClientRequest request, CancellationToken cancellationToken = default)
     {
         await createClientValidator.ValidateRequestAsync(request, cancellationToken);
-        await EnsureClientUniquenessAsync(request.Email, request.Document, null, cancellationToken);
+        await EnsureClientUniquenessAsync(request.Email, request.Document, null, null, cancellationToken);
 
         var clientId = IdGenerator.NextPrefixedId(
             "CLI-",
@@ -70,8 +77,15 @@ public sealed class ClientsService(
             JoinedDate = DateOnly.FromDateTime(DateTime.UtcNow)
         };
 
+        var portalAccess = await CreateClientPortalAccessAsync(client, cancellationToken);
         await dbContext.AddAsync(client, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await passwordSetupEmailSender.SendAsync(
+            portalAccess.User.Name,
+            portalAccess.User.Email,
+            portalAccess.Token,
+            portalAccess.ExpiresAt,
+            cancellationToken);
         var response = await GetClientAsync(clientId, cancellationToken);
         await PublishBackofficeEventAsync("client.created", response, cancellationToken);
         return response;
@@ -88,7 +102,8 @@ public sealed class ClientsService(
             .FirstOrDefaultAsync(x => x.Id == clientId, cancellationToken)
             ?? throw new EntityNotFoundException("Cliente", clientId);
 
-        await EnsureClientUniquenessAsync(request.Email, request.Document, clientId, cancellationToken);
+        var portalAccessUser = await FindClientPortalAccessUserByEmailAsync(client.Email, cancellationToken);
+        await EnsureClientUniquenessAsync(request.Email, request.Document, clientId, portalAccessUser?.Id, cancellationToken);
 
         client.Name = request.Name.Trim();
         client.Email = request.Email.Trim();
@@ -97,6 +112,15 @@ public sealed class ClientsService(
         client.DocumentType = request.DocumentType;
         client.Company = request.Company.Trim();
         client.Status = request.Status;
+
+        if (portalAccessUser is not null)
+        {
+            portalAccessUser.Name = request.Name.Trim();
+            portalAccessUser.Email = request.Email.Trim();
+            portalAccessUser.Phone = request.Phone.Trim();
+            portalAccessUser.Department = request.Company.Trim();
+            dbContext.Update(portalAccessUser);
+        }
 
         dbContext.Update(client);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -123,10 +147,41 @@ public sealed class ClientsService(
         var users = await dbContext.ConnectedUsers
             .Where(x => x.ClientId == clientId)
             .ToListAsync(cancellationToken);
+        var portalAccessUser = await FindClientPortalAccessUserByEmailAsync(client.Email, cancellationToken);
 
         foreach (var user in users)
         {
             dbContext.Remove(user);
+        }
+
+        if (portalAccessUser is not null)
+        {
+            var sessions = await dbContext.ProfileSessions
+                .Where(x => x.AdminUserId == portalAccessUser.Id)
+                .ToListAsync(cancellationToken);
+            var activities = await dbContext.ProfileActivities
+                .Where(x => x.AdminUserId == portalAccessUser.Id)
+                .ToListAsync(cancellationToken);
+            var passwordSetupTokens = await dbContext.PasswordSetupTokens
+                .Where(x => x.AdminUserId == portalAccessUser.Id)
+                .ToListAsync(cancellationToken);
+
+            foreach (var session in sessions)
+            {
+                dbContext.Remove(session);
+            }
+
+            foreach (var activity in activities)
+            {
+                dbContext.Remove(activity);
+            }
+
+            foreach (var passwordSetupToken in passwordSetupTokens)
+            {
+                dbContext.Remove(passwordSetupToken);
+            }
+
+            dbContext.Remove(portalAccessUser);
         }
 
         foreach (var license in licenses)
@@ -146,6 +201,7 @@ public sealed class ClientsService(
         string email,
         string document,
         string? currentClientId,
+        string? currentPortalAccessUserId,
         CancellationToken cancellationToken)
     {
         var normalizedEmail = email.Trim().ToLowerInvariant();
@@ -166,7 +222,70 @@ public sealed class ClientsService(
         {
             throw new ConflictException($"Já existe um cliente com o documento '{document}'.");
         }
+
+        var portalAccessEmailInUse = await dbContext.AdminUsers.AnyAsync(
+            x => x.Id != currentPortalAccessUserId && x.Email.ToLower() == normalizedEmail,
+            cancellationToken);
+        if (portalAccessEmailInUse)
+        {
+            throw new ConflictException($"Já existe um usuário com o e-mail '{email}'.");
+        }
     }
+
+    private async Task<(AdminUser User, string Token, DateTimeOffset ExpiresAt)> CreateClientPortalAccessAsync(
+        Client client,
+        CancellationToken cancellationToken)
+    {
+        var portalAccessUserId = IdGenerator.NextPrefixedId(
+            "USR-",
+            await dbContext.AdminUsers.Select(x => x.Id).ToListAsync(cancellationToken));
+        var passwordSetupTokenId = IdGenerator.NextPrefixedId(
+            "PST-",
+            await dbContext.PasswordSetupTokens.Select(x => x.Id).ToListAsync(cancellationToken));
+        var passwordSetupToken = GeneratePasswordSetupToken();
+        var expiresAt = DateTimeOffset.UtcNow.Add(PasswordSetupTokenLifetime);
+
+        var portalAccessUser = new AdminUser
+        {
+            Id = portalAccessUserId,
+            Name = client.Name,
+            Email = client.Email,
+            Phone = client.Phone,
+            Role = "Cliente",
+            Status = "Convite Pendente",
+            Department = client.Company,
+            Location = string.Empty,
+            PasswordHash = passwordHasher.Hash(IdGenerator.GenerateSecret(16)),
+            IsPrimaryAccount = false
+        };
+
+        await dbContext.AddAsync(portalAccessUser, cancellationToken);
+        await dbContext.AddAsync(new PasswordSetupToken
+        {
+            Id = passwordSetupTokenId,
+            AdminUserId = portalAccessUserId,
+            TokenHash = ComputeTokenHash(passwordSetupToken),
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = expiresAt
+        }, cancellationToken);
+
+        return (portalAccessUser, passwordSetupToken, expiresAt);
+    }
+
+    private Task<AdminUser?> FindClientPortalAccessUserByEmailAsync(string email, CancellationToken cancellationToken)
+    {
+        var normalizedEmail = email.Trim().ToLowerInvariant();
+        return dbContext.AdminUsers
+            .FirstOrDefaultAsync(
+                x => x.Role == "Cliente" && x.Email.ToLower() == normalizedEmail,
+                cancellationToken);
+    }
+
+    private static string GeneratePasswordSetupToken() =>
+        Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
+    private static string ComputeTokenHash(string token) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token.Trim())));
 
     private static ClientSummaryDto MapSummary(Client client, IEnumerable<Domain.Products.License> licenses)
     {

@@ -57,6 +57,7 @@ public static class ServiceCollectionExtensions
         }
 
         services.AddScoped<MyratiDbSeeder>();
+        services.AddScoped<ProductionSuperAdminPasswordSetupBootstrapper>();
         services.AddSingleton<InMemoryRealtimeEventHub>();
         services.AddSingleton<IRealtimeEventPublisher>(provider => provider.GetRequiredService<InMemoryRealtimeEventHub>());
         services.AddSingleton<IRealtimeEventStream>(provider => provider.GetRequiredService<InMemoryRealtimeEventHub>());
