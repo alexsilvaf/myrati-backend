@@ -412,11 +412,18 @@ Se o frontend ficar fora da instância, a topologia recomendada passa a ser:
 - gateway publicado via Caddy na Lightsail
 - microserviços e PostgreSQL acessíveis só pela rede Docker interna
 
+> O DNS do subdomínio da API pode ficar integralmente na Vercel. Não há necessidade de criar zona DNS na AWS para esse cenário. O backend só precisa receber o tráfego na Lightsail; a resolução do nome pode ser feita pelo provedor DNS que você já usa para o domínio.
+
+> Para evitar quebra futura de DNS, use uma **Static IP** da Lightsail. O IPv4 público padrão da instância pode mudar quando a máquina é parada e iniciada novamente.
+
+> `api.myrati.com.br` não deve ser conectado ao projeto do frontend na Vercel. Ele deve existir apenas como registro DNS do domínio, apontando para a Lightsail.
+
 Arquivos de apoio:
 
 - `docker-compose.yml` para os serviços internos
 - `docker-compose.lightsail.yml` para publicar só o gateway com Caddy
 - `deploy/Caddyfile.api` para terminar TLS e repassar ao gateway
+- `deploy/VERCEL-LIGHTSAIL.md` para o passo a passo completo do apontamento
 
 Variáveis recomendadas:
 
@@ -434,6 +441,16 @@ docker compose -f .\docker-compose.lightsail.yml up -d --build
 ```
 
 O frontend da Vercel deve consumir `https://api.myrati.com.br`. Para isso, o repositório do frontend pode usar `VITE_API_URL=https://api.myrati.com.br` em produção.
+
+### Importante: não use IP cru no frontend em produção
+
+Quando o frontend está hospedado na Vercel, ele é servido em HTTPS. Nesse cenário, apontar `VITE_API_URL` para algo como `http://13.218.108.99:5118` é uma configuração frágil e inadequada para produção:
+
+- o navegador pode bloquear chamadas HTTP feitas a partir de uma página HTTPS por mixed content;
+- certificados públicos automáticos funcionam com domínio, não com um IPv4 solto nesse fluxo;
+- se o IP da instância mudar, o frontend quebra até que a variável seja atualizada.
+
+Use o IP direto apenas para smoke tests manuais com `curl` ou para acesso operacional via SSH tunnel. Para tráfego real de navegador, mantenha um subdomínio dedicado, por exemplo `https://api.myrati.com.br`.
 
 ---
 
