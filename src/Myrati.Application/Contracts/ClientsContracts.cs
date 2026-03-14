@@ -12,7 +12,8 @@ public sealed record ClientSummaryDto(
     int ActiveLicenses,
     decimal MonthlyRevenue,
     string JoinedDate,
-    string Status);
+    string Status,
+    bool PasswordSetupPending);
 
 public sealed record ClientDetailDto(
     string Id,
@@ -27,6 +28,7 @@ public sealed record ClientDetailDto(
     decimal MonthlyRevenue,
     string JoinedDate,
     string Status,
+    bool PasswordSetupPending,
     IReadOnlyCollection<UserDirectoryItemDto> Users,
     IReadOnlyCollection<LicenseDto> Licenses);
 

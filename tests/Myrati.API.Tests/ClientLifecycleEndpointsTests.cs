@@ -157,4 +157,106 @@ public sealed class ClientLifecycleEndpointsTests(CustomWebApplicationFactory fa
         Assert.Equal(clientEmail, portalMe.Email);
         Assert.Equal($"Empresa Portal {suffix}", portalMe.Company);
     }
+
+    [Fact]
+    public async Task Developer_CanCreateAndUpdateClient_ButCannotDelete()
+    {
+        factory.PasswordSetupEmailSender.Reset();
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+
+        using var developerClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var developerAuth = await developerClient.LoginAsync("bruno@myrati.com", "Myrati@123");
+        developerClient.UseBearerToken(developerAuth.AccessToken);
+
+        var createClientResponse = await developerClient.PostAsJsonAsync(
+            "/api/v1/backoffice/clients",
+            new CreateClientRequest(
+                $"Cliente Dev {suffix}",
+                $"cliente-dev-{suffix}@myrati.com",
+                "(11) 97777-0000",
+                $"DOC-DEV-{suffix}",
+                "CPF",
+                $"Empresa Dev {suffix}",
+                "Ativo"));
+        Assert.Equal(HttpStatusCode.Created, createClientResponse.StatusCode);
+
+        var createdClient = await createClientResponse.Content.ReadFromJsonAsync<ClientDetailDto>();
+        Assert.NotNull(createdClient);
+
+        var updateClientResponse = await developerClient.PutAsJsonAsync(
+            $"/api/v1/backoffice/clients/{createdClient.Id}",
+            new UpdateClientRequest(
+                $"Cliente Dev Editado {suffix}",
+                $"cliente-dev-editado-{suffix}@myrati.com",
+                "(11) 96666-0000",
+                $"DOC-DEV-UP-{suffix}",
+                "CPF",
+                $"Empresa Dev Editada {suffix}",
+                "Ativo"));
+        Assert.Equal(HttpStatusCode.OK, updateClientResponse.StatusCode);
+
+        var deleteClientResponse = await developerClient.DeleteAsync($"/api/v1/backoffice/clients/{createdClient.Id}");
+        Assert.Equal(HttpStatusCode.Forbidden, deleteClientResponse.StatusCode);
+
+        using var adminClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var adminAuth = await adminClient.LoginAsAdminAsync();
+        adminClient.UseBearerToken(adminAuth.AccessToken);
+
+        var cleanupResponse = await adminClient.DeleteAsync($"/api/v1/backoffice/clients/{createdClient.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, cleanupResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task ResendPasswordSetup_ReissuesInvitationForPendingClient()
+    {
+        factory.PasswordSetupEmailSender.Reset();
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var clientEmail = $"reenvio-{suffix}@myrati.com";
+
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var auth = await client.LoginAsAdminAsync();
+        client.UseBearerToken(auth.AccessToken);
+
+        var createClientResponse = await client.PostAsJsonAsync(
+            "/api/v1/backoffice/clients",
+            new CreateClientRequest(
+                $"Cliente Reenvio {suffix}",
+                clientEmail,
+                "(11) 97777-1111",
+                $"DOC-RSV-{suffix}",
+                "CPF",
+                $"Empresa Reenvio {suffix}",
+                "Ativo"));
+        Assert.Equal(HttpStatusCode.Created, createClientResponse.StatusCode);
+
+        var createdClient = await createClientResponse.Content.ReadFromJsonAsync<ClientDetailDto>();
+        Assert.NotNull(createdClient);
+        Assert.True(createdClient.PasswordSetupPending);
+
+        var firstInvitation = factory.PasswordSetupEmailSender.FindByEmail(clientEmail);
+        Assert.NotNull(firstInvitation);
+
+        var resendResponse = await client.PostAsync(
+            $"/api/v1/backoffice/clients/{createdClient.Id}/password-setup/resend",
+            null);
+        Assert.Equal(HttpStatusCode.NoContent, resendResponse.StatusCode);
+
+        var secondInvitation = factory.PasswordSetupEmailSender.FindByEmail(clientEmail);
+        Assert.NotNull(secondInvitation);
+        Assert.NotEqual(firstInvitation.Token, secondInvitation.Token);
+        Assert.Equal(2, factory.PasswordSetupEmailSender.Emails.Count(email =>
+            string.Equals(email.RecipientEmail, clientEmail, StringComparison.OrdinalIgnoreCase)));
+    }
 }

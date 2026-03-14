@@ -29,9 +29,19 @@ public sealed class ClientsService(
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
         var licenses = await dbContext.Licenses.ToListAsync(cancellationToken);
+        var portalAccessUsers = await dbContext.AdminUsers
+            .Where(x => x.Role == "Cliente")
+            .ToListAsync(cancellationToken);
+        var portalAccessByEmail = portalAccessUsers.ToDictionary(
+            user => user.Email.ToLowerInvariant(),
+            user => user);
 
         return clients
-            .Select(client => MapSummary(client, licenses.Where(x => x.ClientId == client.Id)))
+            .Select(client =>
+            {
+                portalAccessByEmail.TryGetValue(client.Email.Trim().ToLowerInvariant(), out var portalAccessUser);
+                return MapSummary(client, licenses.Where(x => x.ClientId == client.Id), portalAccessUser);
+            })
             .ToArray();
     }
 
@@ -51,8 +61,9 @@ public sealed class ClientsService(
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
         var products = await dbContext.Products.ToListAsync(cancellationToken);
+        var portalAccessUser = await FindClientPortalAccessUserByEmailAsync(client.Email, cancellationToken);
 
-        return MapDetail(client, licenses, users, products);
+        return MapDetail(client, licenses, users, products, portalAccessUser);
     }
 
     public async Task<ClientDetailDto> CreateClientAsync(CreateClientRequest request, CancellationToken cancellationToken = default)
@@ -77,14 +88,15 @@ public sealed class ClientsService(
             JoinedDate = ApplicationTime.LocalToday()
         };
 
-        var portalAccess = await CreateClientPortalAccessAsync(client, cancellationToken);
+        var portalAccessUser = await CreateClientPortalAccessUserAsync(client, cancellationToken);
+        var passwordSetup = await CreatePasswordSetupTokenAsync(portalAccessUser.Id, cancellationToken);
         await dbContext.AddAsync(client, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         await passwordSetupEmailSender.SendAsync(
-            portalAccess.User.Name,
-            portalAccess.User.Email,
-            portalAccess.Token,
-            portalAccess.ExpiresAt,
+            portalAccessUser.Name,
+            portalAccessUser.Email,
+            passwordSetup.Token,
+            passwordSetup.ExpiresAt,
             cancellationToken);
         var response = await GetClientAsync(clientId, cancellationToken);
         await PublishBackofficeEventAsync("client.created", response, cancellationToken);
@@ -127,6 +139,49 @@ public sealed class ClientsService(
         var response = await GetClientAsync(clientId, cancellationToken);
         await PublishBackofficeEventAsync("client.updated", response, cancellationToken);
         return response;
+    }
+
+    public async Task ResendPasswordSetupAsync(string clientId, CancellationToken cancellationToken = default)
+    {
+        var client = await dbContext.Clients
+            .FirstOrDefaultAsync(x => x.Id == clientId, cancellationToken)
+            ?? throw new EntityNotFoundException("Cliente", clientId);
+
+        var portalAccessUser = await FindClientPortalAccessUserByEmailAsync(client.Email, cancellationToken);
+        if (portalAccessUser is null)
+        {
+            portalAccessUser = await CreateClientPortalAccessUserAsync(client, cancellationToken);
+        }
+        else if (!string.Equals(portalAccessUser.Status, "Convite Pendente", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ConflictException("Este cliente já definiu a senha. O reenvio só fica disponível enquanto o convite estiver pendente.");
+        }
+        else
+        {
+            portalAccessUser.Name = client.Name;
+            portalAccessUser.Email = client.Email;
+            portalAccessUser.Phone = client.Phone;
+            portalAccessUser.Department = client.Company;
+            portalAccessUser.Role = "Cliente";
+            portalAccessUser.Status = "Convite Pendente";
+            dbContext.Update(portalAccessUser);
+        }
+
+        await RemovePasswordSetupTokensAsync(portalAccessUser.Id, cancellationToken);
+        var passwordSetup = await CreatePasswordSetupTokenAsync(portalAccessUser.Id, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await passwordSetupEmailSender.SendAsync(
+            portalAccessUser.Name,
+            portalAccessUser.Email,
+            passwordSetup.Token,
+            passwordSetup.ExpiresAt,
+            cancellationToken);
+
+        await PublishBackofficeEventAsync(
+            "client.password-setup-resent",
+            new { client.Id, client.Name, client.Email },
+            cancellationToken);
     }
 
     public async Task DeleteClientAsync(string clientId, CancellationToken cancellationToken = default)
@@ -232,18 +287,13 @@ public sealed class ClientsService(
         }
     }
 
-    private async Task<(AdminUser User, string Token, DateTimeOffset ExpiresAt)> CreateClientPortalAccessAsync(
+    private async Task<AdminUser> CreateClientPortalAccessUserAsync(
         Client client,
         CancellationToken cancellationToken)
     {
         var portalAccessUserId = IdGenerator.NextPrefixedId(
             "USR-",
             await dbContext.AdminUsers.Select(x => x.Id).ToListAsync(cancellationToken));
-        var passwordSetupTokenId = IdGenerator.NextPrefixedId(
-            "PST-",
-            await dbContext.PasswordSetupTokens.Select(x => x.Id).ToListAsync(cancellationToken));
-        var passwordSetupToken = GeneratePasswordSetupToken();
-        var expiresAt = DateTimeOffset.UtcNow.Add(PasswordSetupTokenLifetime);
 
         var portalAccessUser = new AdminUser
         {
@@ -260,16 +310,41 @@ public sealed class ClientsService(
         };
 
         await dbContext.AddAsync(portalAccessUser, cancellationToken);
+        return portalAccessUser;
+    }
+
+    private async Task<(string Token, DateTimeOffset ExpiresAt)> CreatePasswordSetupTokenAsync(
+        string adminUserId,
+        CancellationToken cancellationToken)
+    {
+        var passwordSetupTokenId = IdGenerator.NextPrefixedId(
+            "PST-",
+            await dbContext.PasswordSetupTokens.Select(x => x.Id).ToListAsync(cancellationToken));
+        var passwordSetupToken = GeneratePasswordSetupToken();
+        var expiresAt = DateTimeOffset.UtcNow.Add(PasswordSetupTokenLifetime);
+
         await dbContext.AddAsync(new PasswordSetupToken
         {
             Id = passwordSetupTokenId,
-            AdminUserId = portalAccessUserId,
+            AdminUserId = adminUserId,
             TokenHash = ComputeTokenHash(passwordSetupToken),
             CreatedAt = DateTimeOffset.UtcNow,
             ExpiresAt = expiresAt
         }, cancellationToken);
 
-        return (portalAccessUser, passwordSetupToken, expiresAt);
+        return (passwordSetupToken, expiresAt);
+    }
+
+    private async Task RemovePasswordSetupTokensAsync(string adminUserId, CancellationToken cancellationToken)
+    {
+        var passwordSetupTokens = await dbContext.PasswordSetupTokens
+            .Where(x => x.AdminUserId == adminUserId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var passwordSetupToken in passwordSetupTokens)
+        {
+            dbContext.Remove(passwordSetupToken);
+        }
     }
 
     private Task<AdminUser?> FindClientPortalAccessUserByEmailAsync(string email, CancellationToken cancellationToken)
@@ -287,7 +362,10 @@ public sealed class ClientsService(
     private static string ComputeTokenHash(string token) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token.Trim())));
 
-    private static ClientSummaryDto MapSummary(Client client, IEnumerable<Domain.Products.License> licenses)
+    private static ClientSummaryDto MapSummary(
+        Client client,
+        IEnumerable<Domain.Products.License> licenses,
+        AdminUser? portalAccessUser)
     {
         var licensesList = licenses.ToList();
         return new ClientSummaryDto(
@@ -302,14 +380,16 @@ public sealed class ClientsService(
             licensesList.Count(x => x.Status == "Ativa"),
             licensesList.Where(x => x.Status == "Ativa").Sum(x => x.MonthlyValue),
             client.JoinedDate.ToIsoDate(),
-            client.Status);
+            client.Status,
+            string.Equals(portalAccessUser?.Status, "Convite Pendente", StringComparison.OrdinalIgnoreCase));
     }
 
     private static ClientDetailDto MapDetail(
         Client client,
         IEnumerable<Domain.Products.License> licenses,
         IEnumerable<ConnectedUser> users,
-        IEnumerable<Domain.Products.Product> products)
+        IEnumerable<Domain.Products.Product> products,
+        AdminUser? portalAccessUser)
     {
         var licensesList = licenses.ToList();
         var productsById = products.ToDictionary(x => x.Id);
@@ -327,6 +407,7 @@ public sealed class ClientsService(
             licensesList.Where(x => x.Status == "Ativa").Sum(x => x.MonthlyValue),
             client.JoinedDate.ToIsoDate(),
             client.Status,
+            string.Equals(portalAccessUser?.Status, "Convite Pendente", StringComparison.OrdinalIgnoreCase),
             users.Select(user =>
             {
                 var productName = productsById.TryGetValue(user.ProductId, out var product)

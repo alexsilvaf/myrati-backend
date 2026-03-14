@@ -24,7 +24,7 @@ public sealed class ClientsController(IClientsService clientsService) : Controll
         return Ok(response);
     }
 
-    [Authorize(Policy = "BackofficeWrite")]
+    [Authorize(Policy = "ClientsWrite")]
     [HttpPost]
     public async Task<ActionResult<ClientDetailDto>> CreateClient(
         [FromBody] CreateClientRequest request,
@@ -34,7 +34,7 @@ public sealed class ClientsController(IClientsService clientsService) : Controll
         return StatusCode(StatusCodes.Status201Created, response);
     }
 
-    [Authorize(Policy = "BackofficeWrite")]
+    [Authorize(Policy = "ClientsWrite")]
     [HttpPut("{clientId}")]
     public async Task<ActionResult<ClientDetailDto>> UpdateClient(
         string clientId,
@@ -43,6 +43,14 @@ public sealed class ClientsController(IClientsService clientsService) : Controll
     {
         var response = await clientsService.UpdateClientAsync(clientId, request, cancellationToken);
         return Ok(response);
+    }
+
+    [Authorize(Policy = "ClientsWrite")]
+    [HttpPost("{clientId}/password-setup/resend")]
+    public async Task<IActionResult> ResendPasswordSetup(string clientId, CancellationToken cancellationToken)
+    {
+        await clientsService.ResendPasswordSetupAsync(clientId, cancellationToken);
+        return NoContent();
     }
 
     [Authorize(Policy = "BackofficeWrite")]

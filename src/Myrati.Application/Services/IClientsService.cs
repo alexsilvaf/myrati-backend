@@ -8,5 +8,6 @@ public interface IClientsService
     Task<ClientDetailDto> GetClientAsync(string clientId, CancellationToken cancellationToken = default);
     Task<ClientDetailDto> CreateClientAsync(CreateClientRequest request, CancellationToken cancellationToken = default);
     Task<ClientDetailDto> UpdateClientAsync(string clientId, UpdateClientRequest request, CancellationToken cancellationToken = default);
+    Task ResendPasswordSetupAsync(string clientId, CancellationToken cancellationToken = default);
     Task DeleteClientAsync(string clientId, CancellationToken cancellationToken = default);
 }

@@ -83,6 +83,8 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole("Super Admin", "Admin", "Vendedor", "Desenvolvedor"));
     options.AddPolicy("BackofficeCostsRead", policy =>
         policy.RequireRole("Super Admin", "Admin", "Vendedor"));
+    options.AddPolicy("ClientsWrite", policy =>
+        policy.RequireRole("Super Admin", "Admin", "Desenvolvedor"));
     options.AddPolicy("PortalRead", policy =>
         policy.RequireRole("Cliente"));
     options.AddPolicy("ProductCreate", policy =>

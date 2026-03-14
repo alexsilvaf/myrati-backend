@@ -24,6 +24,7 @@ public sealed class SettingsService(
     IBackofficeNotificationPublisher backofficeNotificationPublisher) : ISettingsService
 {
     private static readonly TimeSpan PasswordSetupTokenLifetime = TimeSpan.FromHours(72);
+    private static readonly string[] InternalTeamRoles = ["Super Admin", "Admin", "Desenvolvedor", "Vendedor"];
 
     public async Task<SettingsSnapshotDto> GetAsync(CancellationToken cancellationToken = default)
     {
@@ -32,6 +33,7 @@ public sealed class SettingsService(
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
         var teamMembers = await dbContext.AdminUsers
+            .Where(x => InternalTeamRoles.Contains(x.Role))
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
 
@@ -200,9 +202,7 @@ public sealed class SettingsService(
     {
         await updateTeamMemberValidator.ValidateRequestAsync(request, cancellationToken);
 
-        var teamMember = await dbContext.AdminUsers
-            .FirstOrDefaultAsync(x => x.Id == teamMemberId, cancellationToken)
-            ?? throw new EntityNotFoundException("Membro", teamMemberId);
+        var teamMember = await GetTeamMemberAsync(teamMemberId, cancellationToken);
 
         await EnsureAdminEmailAvailableAsync(request.Email, teamMemberId, cancellationToken);
 
@@ -221,9 +221,7 @@ public sealed class SettingsService(
 
     public async Task DeleteTeamMemberAsync(string teamMemberId, CancellationToken cancellationToken = default)
     {
-        var teamMember = await dbContext.AdminUsers
-            .FirstOrDefaultAsync(x => x.Id == teamMemberId, cancellationToken)
-            ?? throw new EntityNotFoundException("Membro", teamMemberId);
+        var teamMember = await GetTeamMemberAsync(teamMemberId, cancellationToken);
 
         if (teamMember.IsPrimaryAccount || teamMember.Role == "Super Admin")
         {
@@ -309,9 +307,15 @@ public sealed class SettingsService(
 
         if (emailInUse)
         {
-            throw new ConflictException($"Ja existe um membro com o e-mail '{email}'.");
+            throw new ConflictException($"Ja existe uma conta com o e-mail '{email}'.");
         }
     }
+
+    private async Task<AdminUser> GetTeamMemberAsync(string teamMemberId, CancellationToken cancellationToken) =>
+        await dbContext.AdminUsers
+            .Where(x => InternalTeamRoles.Contains(x.Role))
+            .FirstOrDefaultAsync(x => x.Id == teamMemberId, cancellationToken)
+            ?? throw new EntityNotFoundException("Membro", teamMemberId);
 
     private static SettingsSnapshotDto MapSnapshot(
         CompanySettings settings,

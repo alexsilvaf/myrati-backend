@@ -11,6 +11,12 @@ services:
       - "5432:5432"
     volumes:
       - myrati-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-myrati}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
   postgres-backup:
     build:
@@ -18,7 +24,8 @@ services:
       dockerfile: ./deploy/Dockerfile.backup
     container_name: myrati-postgres-backup
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -52,7 +59,8 @@ services:
         SERVICE_DLL: Myrati.BackofficeService.API.dll
     container_name: myrati-backoffice-service
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -87,7 +95,10 @@ services:
         SERVICE_DLL: Myrati.IdentityService.API.dll
     container_name: myrati-identity-service
     depends_on:
-      - backoffice-service
+      postgres:
+        condition: service_healthy
+      backoffice-service:
+        condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -121,7 +132,10 @@ services:
         SERVICE_DLL: Myrati.PublicService.API.dll
     container_name: myrati-public-service
     depends_on:
-      - backoffice-service
+      postgres:
+        condition: service_healthy
+      backoffice-service:
+        condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -181,7 +195,10 @@ services:
         SERVICE_DLL: Myrati.NotificationService.API.dll
     container_name: myrati-notification-service
     depends_on:
-      - backoffice-service
+      postgres:
+        condition: service_healthy
+      backoffice-service:
+        condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080

@@ -204,4 +204,44 @@ public sealed class SettingsAndProfileEndpointsTests(CustomWebApplicationFactory
         Assert.NotNull(auth);
         Assert.Equal(invitedEmail, auth.User.Email);
     }
+
+    [Fact]
+    public async Task SettingsSnapshot_OnlyReturnsInternalTeamMembers()
+    {
+        factory.PasswordSetupEmailSender.Reset();
+        var suffix = Guid.NewGuid().ToString("N")[..6];
+        var clientEmail = $"cliente-settings-{suffix}@myrati.com";
+
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var auth = await client.LoginAsAdminAsync();
+        client.UseBearerToken(auth.AccessToken);
+
+        var createClientResponse = await client.PostAsJsonAsync(
+            "/api/v1/backoffice/clients",
+            new CreateClientRequest(
+                $"Cliente Config {suffix}",
+                clientEmail,
+                "(11) 95555-1111",
+                $"DOC-SET-{suffix}",
+                "CPF",
+                $"Empresa Config {suffix}",
+                "Ativo"));
+        createClientResponse.EnsureSuccessStatusCode();
+        var createdClient = await createClientResponse.Content.ReadFromJsonAsync<ClientDetailDto>();
+        Assert.NotNull(createdClient);
+
+        var settingsResponse = await client.GetAsync("/api/v1/backoffice/settings");
+        settingsResponse.EnsureSuccessStatusCode();
+
+        var settings = await settingsResponse.Content.ReadFromJsonAsync<SettingsSnapshotDto>();
+        Assert.NotNull(settings);
+        Assert.DoesNotContain(settings.TeamMembers, member => string.Equals(member.Email, clientEmail, StringComparison.OrdinalIgnoreCase));
+
+        var deleteClientResponse = await client.DeleteAsync($"/api/v1/backoffice/clients/{createdClient.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteClientResponse.StatusCode);
+    }
 }

@@ -18,6 +18,10 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
 {
     private const string BootstrapPassword = "Myrati@123";
     private readonly bool includeDemoData = configuration.GetValue<bool>("Seeding:IncludeDemoData");
+    private readonly bool seedDevelopmentBootstrapAccounts =
+        configuration.GetValue<bool>("Seeding:BootstrapLocalAccounts") ||
+        string.Equals(configuration["ASPNETCORE_ENVIRONMENT"], "Development", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(configuration["DOTNET_ENVIRONMENT"], "Development", StringComparison.OrdinalIgnoreCase);
 
     public async Task SeedAsync(MyratiDbContext context, CancellationToken cancellationToken = default)
     {
@@ -27,6 +31,7 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         {
             var removedLegacyDemoData = await RemoveLegacyDemoDataAsync(context, cancellationToken);
             await EnsureRequiredSuperAdminsAsync(context, removedLegacyDemoData, cancellationToken);
+            await EnsureDevelopmentBootstrapAccountsAsync(context, cancellationToken);
 
             if (context.ChangeTracker.HasChanges())
             {
@@ -594,6 +599,131 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         }
     }
 
+    private async Task EnsureDevelopmentBootstrapAccountsAsync(
+        MyratiDbContext context,
+        CancellationToken cancellationToken)
+    {
+        if (!seedDevelopmentBootstrapAccounts)
+        {
+            return;
+        }
+
+        await EnsureDevelopmentDeveloperAsync(context, cancellationToken);
+        await EnsureDevelopmentClientAsync(context, cancellationToken);
+    }
+
+    private async Task EnsureDevelopmentDeveloperAsync(
+        MyratiDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var developerSeed = DevelopmentBootstrapDeveloperSeed;
+        var developer = await context.AdminUsersSet
+            .FirstOrDefaultAsync(user => user.Email.ToLower() == developerSeed.Email.ToLower(), cancellationToken);
+
+        if (developer is null)
+        {
+            await context.AddAsync(new AdminUser
+            {
+                Id = developerSeed.Id,
+                Name = developerSeed.Name,
+                Email = developerSeed.Email,
+                Phone = developerSeed.Phone,
+                Role = developerSeed.Role,
+                Status = developerSeed.Status,
+                Department = developerSeed.Department,
+                Location = developerSeed.Location,
+                PasswordHash = passwordHasher.Hash(BootstrapPassword),
+                IsPrimaryAccount = developerSeed.IsPrimaryAccount
+            }, cancellationToken);
+            return;
+        }
+
+        developer.Name = developerSeed.Name;
+        developer.Email = developerSeed.Email;
+        developer.Phone = developerSeed.Phone;
+        developer.Role = developerSeed.Role;
+        developer.Status = developerSeed.Status;
+        developer.Department = developerSeed.Department;
+        developer.Location = developerSeed.Location;
+        developer.PasswordHash = passwordHasher.Hash(BootstrapPassword);
+        developer.IsPrimaryAccount = false;
+        context.Update(developer);
+    }
+
+    private async Task EnsureDevelopmentClientAsync(
+        MyratiDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var clientSeed = DevelopmentBootstrapClientSeed;
+        var client = await context.ClientsSet
+            .FirstOrDefaultAsync(existing => existing.Email.ToLower() == clientSeed.Email.ToLower(), cancellationToken);
+
+        if (client is null)
+        {
+            await context.AddAsync(new Client
+            {
+                Id = clientSeed.Id,
+                Name = clientSeed.Name,
+                Email = clientSeed.Email,
+                Phone = clientSeed.Phone,
+                Document = clientSeed.Document,
+                DocumentType = clientSeed.DocumentType,
+                Company = clientSeed.Company,
+                JoinedDate = ParseDate(clientSeed.JoinedDate),
+                Status = clientSeed.Status
+            }, cancellationToken);
+        }
+        else
+        {
+            client.Name = clientSeed.Name;
+            client.Email = clientSeed.Email;
+            client.Phone = clientSeed.Phone;
+            client.Document = clientSeed.Document;
+            client.DocumentType = clientSeed.DocumentType;
+            client.Company = clientSeed.Company;
+            client.Status = clientSeed.Status;
+            context.Update(client);
+        }
+
+        var portalUser = await context.AdminUsersSet
+            .FirstOrDefaultAsync(user => user.Email.ToLower() == clientSeed.Email.ToLower(), cancellationToken);
+
+        if (portalUser is null)
+        {
+            await context.AddAsync(new AdminUser
+            {
+                Id = DevelopmentBootstrapClientPortalUserSeed.Id,
+                Name = DevelopmentBootstrapClientPortalUserSeed.Name,
+                Email = DevelopmentBootstrapClientPortalUserSeed.Email,
+                Phone = DevelopmentBootstrapClientPortalUserSeed.Phone,
+                Role = DevelopmentBootstrapClientPortalUserSeed.Role,
+                Status = DevelopmentBootstrapClientPortalUserSeed.Status,
+                Department = DevelopmentBootstrapClientPortalUserSeed.Department,
+                Location = DevelopmentBootstrapClientPortalUserSeed.Location,
+                PasswordHash = passwordHasher.Hash(BootstrapPassword),
+                IsPrimaryAccount = false
+            }, cancellationToken);
+        }
+        else
+        {
+            portalUser.Name = DevelopmentBootstrapClientPortalUserSeed.Name;
+            portalUser.Email = DevelopmentBootstrapClientPortalUserSeed.Email;
+            portalUser.Phone = DevelopmentBootstrapClientPortalUserSeed.Phone;
+            portalUser.Role = "Cliente";
+            portalUser.Status = "Ativo";
+            portalUser.Department = DevelopmentBootstrapClientPortalUserSeed.Department;
+            portalUser.Location = DevelopmentBootstrapClientPortalUserSeed.Location;
+            portalUser.PasswordHash = passwordHasher.Hash(BootstrapPassword);
+            portalUser.IsPrimaryAccount = false;
+            context.Update(portalUser);
+
+            var passwordSetupTokens = await context.PasswordSetupTokensSet
+                .Where(token => token.AdminUserId == portalUser.Id)
+                .ToListAsync(cancellationToken);
+            context.RemoveRange(passwordSetupTokens);
+        }
+    }
+
     private static DateOnly ParseDate(string value) =>
         DateOnly.ParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture);
 
@@ -833,6 +963,15 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         new("TM-001", "Alex", "alex@myrati.com.br", string.Empty, "Super Admin", "Ativo", string.Empty, string.Empty, true),
         new("TM-002", "Yasmin", "yasmin@myrati.com.br", string.Empty, "Super Admin", "Ativo", string.Empty, string.Empty, false)
     ];
+
+    private static readonly AdminUserSeed DevelopmentBootstrapDeveloperSeed =
+        new("TM-010", "Bruno Lima", "bruno@myrati.com", "(41) 95555-4000", "Desenvolvedor", "Ativo", "Produto", "Curitiba, PR", false);
+
+    private static readonly ClientSeed DevelopmentBootstrapClientSeed =
+        new("CLI-010", "Cliente Local", "cliente@myrati.com", "(11) 97777-8888", "12.345.678/0001-99", "CNPJ", "Cliente Local Ltda", "2026-03-14", "Ativo");
+
+    private static readonly AdminUserSeed DevelopmentBootstrapClientPortalUserSeed =
+        new("USR-010", "Cliente Local", "cliente@myrati.com", "(11) 97777-8888", "Cliente", "Ativo", "Cliente Local Ltda", string.Empty, false);
 
     private static readonly AdminUserSeed[] AdminUserSeeds =
     [

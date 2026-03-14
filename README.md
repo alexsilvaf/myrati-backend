@@ -60,11 +60,11 @@ O backend suporta todos os módulos expostos no frontend da Myrati:
 | **Dashboard** | KPIs, receita mensal e atividades recentes |
 | **Catálogo** | Produtos, estratégias de venda, planos e gestão de licenças |
 | **Custos** | Custos corporativos e gastos operacionais por produto |
-| **Transações** | Entradas e saídas do caixa com referência obrigatória a produto |
+| **Transações** | Entradas e saídas do caixa com referência opcional a produto |
 | **Desenvolvimento** | Kanban por produto com sprints e tarefas |
-| **Clientes** | CRUD com usuários e licenças vinculadas |
+| **Clientes** | CRUD com usuários e licenças vinculadas. Desenvolvedor pode cadastrar e editar clientes, e convites pendentes aceitam reenvio do e-mail de definição de senha |
 | **Usuários** | Diretório de usuários conectados |
-| **Configurações** | Empresa, equipe, preferências e chaves de API |
+| **Configurações** | Empresa, equipe interna, preferências e chaves de API |
 | **Perfil** | Dados pessoais, senha, sessões e log de atividade |
 | **Público** | Ativação de licença, status page e formulário de contato |
 | **Tempo real** | Streams SSE para backoffice e status page |
@@ -618,13 +618,15 @@ Use o IP direto apenas para smoke tests manuais com `curl` ou para acesso operac
 
 ### Papéis
 
-| Papel | BackofficeRead | BackofficeCostsRead | BackofficeWrite |
-|-------|:-:|:-:|:-:|
-| **Super Admin** | ✓ | ✓ | ✓ |
-| **Admin** | ✓ | ✓ | ✓ |
-| **Vendedor** | ✓ | ✓ | — |
-| **Desenvolvedor** | ✓ | — | — |
-| **Cliente** | Portal apenas | — | — |
+| Papel | BackofficeRead | BackofficeCostsRead | ClientsWrite | BackofficeWrite |
+|-------|:-:|:-:|:-:|:-:|
+| **Super Admin** | ✓ | ✓ | ✓ | ✓ |
+| **Admin** | ✓ | ✓ | ✓ | ✓ |
+| **Vendedor** | ✓ | ✓ | — | — |
+| **Desenvolvedor** | ✓ | — | ✓ | — |
+| **Cliente** | Portal apenas | — | — | — |
+
+> `Configurações > Equipe` lista apenas membros internos (`Super Admin`, `Admin`, `Desenvolvedor`, `Vendedor`). Contas `Cliente` pertencem ao fluxo de CRM e não devem aparecer como equipe administrativa.
 
 ### Fluxo
 
@@ -1226,7 +1228,7 @@ Regras importantes:
 
 ### Transactions
 
-Fluxo de caixa do backoffice, sempre referenciado a um produto existente.
+Fluxo de caixa do backoffice, com referência opcional a produto.
 
 | Método | Rota | Política | Uso |
 |--------|------|----------|-----|
@@ -1252,8 +1254,7 @@ Regras importantes:
 
 - `type` aceita `deposit` ou `withdrawal`
 - `category` aceita `license_revenue`, `development_payment`, `revenue_share`, `client_payment`, `salary`, `tax`, `supplier`, `transfer`, `refund` e `other`
-- a referência sempre aponta para um produto válido e o backend persiste também o nome atual do produto para histórico
-- `referenceProductId` é opcional; quando preenchido, deve apontar para um produto existente
+- `referenceProductId` é opcional; quando preenchido, deve apontar para um produto existente e o backend persiste também o nome atual do produto para histórico
 - para `Desenvolvedor`, a listagem inclui somente transações cujos produtos de referência tenham colaborador com `plans.view = true`
 - o saldo acumulado retornado pela API é recalculado na sequência cronológica visível ao usuário atual
 
@@ -1327,6 +1328,8 @@ Lista todos os clientes com métricas resumidas.
 - **Acesso:** `BackofficeRead`
 - **Header:** `Authorization: Bearer {token}`
 
+> Cliente é um registro de CRM. Ele pode receber acesso ao portal por convite, mas não deve aparecer em `Configurações > Equipe`.
+
 **Response `200 OK`:**
 
 ```json
@@ -1343,7 +1346,8 @@ Lista todos os clientes com métricas resumidas.
     "activeLicenses": 2,
     "monthlyRevenue": 1299.70,
     "joinedDate": "2025-01-20",
-    "status": "Ativo"
+    "status": "Ativo",
+    "passwordSetupPending": true
   }
 ]
 ```
@@ -1374,6 +1378,7 @@ Retorna o detalhe de um cliente com seus usuários e licenças vinculadas.
   "monthlyRevenue": 1299.70,
   "joinedDate": "2025-01-20",
   "status": "Ativo",
+  "passwordSetupPending": true,
   "users": [
     {
       "id": "USR-001",
@@ -1412,7 +1417,7 @@ Retorna o detalhe de um cliente com seus usuários e licenças vinculadas.
 
 Cria um novo cliente.
 
-- **Acesso:** `BackofficeWrite`
+- **Acesso:** `ClientsWrite`
 - **Header:** `Authorization: Bearer {token}`
 
 **Request body:**
@@ -1441,19 +1446,43 @@ Cria um novo cliente.
 
 **Response `201 Created`:** retorna o `ClientDetailDto` completo (mesmo formato do GET por ID, com `users` e `licenses` vazios).
 
+Regras importantes:
+
+- `Desenvolvedor`, `Admin` e `Super Admin` podem criar ou editar clientes
+- `phone` é obrigatório no backend e na UI
+- ao criar, o backend gera o usuário de portal com papel `Cliente`, marca o convite como pendente e envia e-mail de definição de senha com validade de 72 horas
+
 ---
 
 #### `PUT /api/v1/backoffice/clients/{clientId}`
 
 Atualiza um cliente existente.
 
-- **Acesso:** `BackofficeWrite`
+- **Acesso:** `ClientsWrite`
 - **Header:** `Authorization: Bearer {token}`
 - **Path param:** `clientId` (string) — ex: `CLI-001`
 
 **Request body:** mesmo formato do POST de criação.
 
 **Response `200 OK`:** retorna o `ClientDetailDto` atualizado.
+
+---
+
+#### `POST /api/v1/backoffice/clients/{clientId}/password-setup/resend`
+
+Reenvia o e-mail de definição de senha para um cliente com convite pendente ou recria o acesso de portal se ele ainda não existir.
+
+- **Acesso:** `ClientsWrite`
+- **Header:** `Authorization: Bearer {token}`
+- **Path param:** `clientId` (string) — ex: `CLI-001`
+
+**Response `204 No Content`**
+
+Regras importantes:
+
+- só funciona enquanto o cliente ainda não tiver definido a senha
+- se o usuário de portal estiver ausente, o backend recria a conta `Cliente` e emite um novo token
+- se a senha já foi definida, a API devolve `409 Conflict`
 
 ---
 
@@ -2138,8 +2167,8 @@ Health check da aplicação.
 | Sprint | `Planejada`, `Ativa`, `Concluída` |
 | Coluna do kanban | `backlog`, `todo`, `in_progress`, `review`, `done` |
 | Prioridade de tarefa | `low`, `medium`, `high`, `critical` |
-| Membro da equipe (role) | `Super Admin`, `Admin`, `Vendedor`, `Desenvolvedor`, `Cliente` |
-| Membro da equipe (status) | `Ativo`, `Convite Pendente` |
+| Papel autenticável | `Super Admin`, `Admin`, `Vendedor`, `Desenvolvedor`, `Cliente` |
+| Status de conta autenticável | `Ativo`, `Convite Pendente` |
 | Tipo de documento | `CPF`, `CNPJ` |
 | Ambiente de API Key | `production`, `staging` |
 | Status de serviço | `operational`, `degraded`, `down` |
@@ -2244,12 +2273,19 @@ dotnet test .\Myrati.slnx --collect:"XPlat Code Coverage"
 
 O banco é inicializado com `EnsureCreated` e seed automático no startup.
 
-### Credencial padrão
+### Credenciais padrão
 
 | Campo | Valor |
 |-------|-------|
 | E-mail | `admin@myrati.com` |
 | Senha | `Myrati@123` |
+
+Quando `Seeding:BootstrapLocalAccounts=true` no ambiente local ou Docker da raiz, o seed também garante:
+
+| Papel | E-mail | Senha |
+|------|--------|-------|
+| `Desenvolvedor` | `bruno@myrati.com` | `Myrati@123` |
+| `Cliente` | `cliente@myrati.com` | `Myrati@123` |
 
 ### Dados pré-carregados
 
