@@ -11,6 +11,7 @@ public sealed class ProductPlan : Entity
     public decimal? DevelopmentCost { get; set; }
     public decimal? MaintenanceCost { get; set; }
     public decimal? RevenueSharePercent { get; set; }
+    public decimal? MaintenanceProfitMargin { get; set; }
 
     public Product? Product { get; set; }
 }

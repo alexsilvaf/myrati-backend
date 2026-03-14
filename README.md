@@ -32,6 +32,7 @@
   - [Dashboard](#dashboard)
   - [Products](#products)
   - [Kanban por produto](#kanban-por-produto)
+  - [Costs](#costs)
   - [Licenses](#licenses)
   - [Clients](#clients)
   - [Users](#users)
@@ -57,6 +58,7 @@ O backend suporta todos os módulos expostos no frontend da Myrati:
 | **Autenticação** | Login JWT para administradores |
 | **Dashboard** | KPIs, receita mensal e atividades recentes |
 | **Catálogo** | Produtos, estratégias de venda, planos e gestão de licenças |
+| **Custos** | Custos corporativos e gastos operacionais por produto |
 | **Desenvolvimento** | Kanban por produto com sprints e tarefas |
 | **Clientes** | CRUD com usuários e licenças vinculadas |
 | **Usuários** | Diretório de usuários conectados |
@@ -614,13 +616,13 @@ Use o IP direto apenas para smoke tests manuais com `curl` ou para acesso operac
 
 ### Papéis
 
-| Papel | BackofficeRead | BackofficeWrite |
-|-------|:-:|:-:|
-| **Super Admin** | ✓ | ✓ |
-| **Admin** | ✓ | ✓ |
-| **Vendedor** | ✓ | — |
-| **Desenvolvedor** | ✓ | — |
-| **Cliente** | Portal apenas | — |
+| Papel | BackofficeRead | BackofficeCostsRead | BackofficeWrite |
+|-------|:-:|:-:|:-:|
+| **Super Admin** | ✓ | ✓ | ✓ |
+| **Admin** | ✓ | ✓ | ✓ |
+| **Vendedor** | ✓ | ✓ | — |
+| **Desenvolvedor** | ✓ | — | — |
+| **Cliente** | Portal apenas | — | — |
 
 ### Fluxo
 
@@ -683,7 +685,6 @@ curl -X POST http://localhost:5118/api/v1/backoffice/products \
     "category": "RH",
     "status": "Em desenvolvimento",
     "salesStrategy": "development",
-    "version": "0.9.0",
     "plans": [
       {
         "name": "Implantação Base",
@@ -707,7 +708,11 @@ curl -X POST http://localhost:5118/api/v1/backoffice/products/PRD-004/sprints \
     "status": "Ativa"
   }'
 
-# 4. Criar uma tarefa
+# 4. Registrar um deploy em produção
+curl -X POST http://localhost:5118/api/v1/backoffice/products/PRD-004/deployments \
+  -H "Authorization: Bearer <JWT>"
+
+# 5. Criar uma tarefa
 curl -X POST http://localhost:5118/api/v1/backoffice/products/PRD-004/tasks \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <JWT>" \
@@ -757,6 +762,7 @@ Esse fluxo já cobre o cenário descrito em prompts como: _"Conecte no Myrati co
 |--------|-----------|
 | `product.created` | Produto criado |
 | `product.updated` | Produto atualizado |
+| `product.deployed` | Deploy em produção registrado |
 | `product.deleted` | Produto removido |
 | `sprint.created` | Sprint criada |
 | `sprint.updated` | Sprint atualizada |
@@ -934,7 +940,9 @@ Lista os produtos com métricas, estratégia de venda e planos.
     "activeLicenses": 0,
     "monthlyRevenue": 0,
     "createdDate": "2026-03-01",
-    "version": "0.9.0",
+    "productionDeploys": 0,
+    "devSprintsSinceLastDeploy": 5,
+    "version": "0.5",
     "plans": [
       {
         "id": "PLN-001",
@@ -943,7 +951,8 @@ Lista os produtos com métricas, estratégia de venda e planos.
         "monthlyPrice": 0,
         "developmentCost": 15000,
         "maintenanceCost": 1200,
-        "revenueSharePercent": null
+        "revenueSharePercent": null,
+        "maintenanceProfitMargin": 30
       }
     ]
   }
@@ -965,6 +974,9 @@ Retorna o detalhe do produto, incluindo licenças e o snapshot do kanban.
   "name": "Myrati HRM",
   "status": "Em desenvolvimento",
   "salesStrategy": "development",
+  "productionDeploys": 0,
+  "devSprintsSinceLastDeploy": 5,
+  "version": "0.5",
   "plans": [
     {
       "id": "PLN-001",
@@ -973,7 +985,8 @@ Retorna o detalhe do produto, incluindo licenças e o snapshot do kanban.
       "monthlyPrice": 0,
       "developmentCost": 15000,
       "maintenanceCost": 1200,
-      "revenueSharePercent": null
+      "revenueSharePercent": null,
+      "maintenanceProfitMargin": 30
     }
   ],
   "licenses": [],
@@ -1025,7 +1038,6 @@ Cria um produto com planos e estratégia de venda.
   "category": "RH",
   "status": "Em desenvolvimento",
   "salesStrategy": "development",
-  "version": "0.9.0",
   "plans": [
     {
       "name": "Implantação Base",
@@ -1033,7 +1045,8 @@ Cria um produto com planos e estratégia de venda.
       "monthlyPrice": 0,
       "developmentCost": 15000,
       "maintenanceCost": 1200,
-      "revenueSharePercent": null
+      "revenueSharePercent": null,
+      "maintenanceProfitMargin": 30
     }
   ]
 }
@@ -1046,14 +1059,18 @@ Cria um produto com planos e estratégia de venda.
 | `category` | string | Sim | Máx. 120 |
 | `status` | string | Sim | `Ativo`, `Inativo`, `Em desenvolvimento` |
 | `salesStrategy` | string | Sim | `subscription`, `development`, `revenue_share` |
-| `version` | string | Sim | Máx. 30 |
 | `plans` | array | Sim | Pelo menos 1 plano |
 | `plans[].name` | string | Sim | Máx. 60 |
-| `plans[].maxUsers` | int | Sim | `>= 0`; em `Ativo`/`Inativo` precisa ser `> 0` |
+| `plans[].maxUsers` | int | Não | `> 0` quando informado; `null` = ilimitado |
 | `plans[].monthlyPrice` | decimal | Sim | `>= 0` |
 | `plans[].developmentCost` | decimal | Condicional | Obrigatório em `development` fora do rascunho |
 | `plans[].maintenanceCost` | decimal | Condicional | Obrigatório em `development` e `revenue_share` fora do rascunho |
 | `plans[].revenueSharePercent` | decimal | Condicional | Obrigatório em `revenue_share` fora do rascunho |
+| `plans[].maintenanceProfitMargin` | decimal | Não | Percentual opcional usado para derivar manutenção a partir dos gastos |
+
+> A versão não é enviada no payload. O backend calcula `version` como `productionDeploys.devSprintsSinceLastDeploy`.
+
+> `monthlyRevenue` segue a regra operacional atual: produto fora de `Ativo` retorna `0`; em `development` e `revenue_share`, quando não há licença mensal ativa, o backend deriva a manutenção a partir dos gastos recorrentes do produto e da margem média dos planos.
 
 **Response `201 Created`:** retorna `ProductDetailDto` em JSON, sem cabeçalho `Location`.
 
@@ -1065,6 +1082,15 @@ Atualiza o produto, a estratégia de venda e todos os planos.
 - **Header:** `Authorization: Bearer {token}`
 
 **Request body:** mesmo contrato do `POST /products`.
+
+**Response `200 OK`:** retorna `ProductDetailDto`.
+
+#### `POST /api/v1/backoffice/products/{productId}/deployments`
+
+Registra um envio para produção do produto. Incrementa `productionDeploys`, zera `devSprintsSinceLastDeploy` e recalcula `version`.
+
+- **Acesso:** `BackofficeWrite`
+- **Header:** `Authorization: Bearer {token}`
 
 **Response `200 OK`:** retorna `ProductDetailDto`.
 
@@ -1131,6 +1157,59 @@ Regras importantes:
 - só pode existir uma sprint `Ativa` por produto
 - excluir sprint com tarefas vinculadas retorna `409 Conflict`
 - tentar editar kanban de produto fora de desenvolvimento retorna `409 Conflict`
+
+---
+
+### Costs
+
+Custos corporativos ficam em uma rota própria, enquanto os gastos operacionais por produto vivem sob o módulo de produtos.
+
+| Método | Rota | Política | Uso |
+|--------|------|----------|-----|
+| `GET` | `/api/v1/backoffice/costs` | `BackofficeCostsRead` | Lista custos corporativos |
+| `POST` | `/api/v1/backoffice/costs` | `BackofficeWrite` | Cria custo corporativo |
+| `PUT` | `/api/v1/backoffice/costs/{costId}` | `BackofficeWrite` | Atualiza custo corporativo |
+| `DELETE` | `/api/v1/backoffice/costs/{costId}` | `BackofficeWrite` | Exclui custo corporativo |
+| `GET` | `/api/v1/backoffice/products/{productId}/expenses` | `BackofficeRead` | Lista gastos operacionais do produto |
+| `POST` | `/api/v1/backoffice/products/{productId}/expenses` | `BackofficeWrite` | Cria gasto operacional do produto |
+| `PUT` | `/api/v1/backoffice/products/{productId}/expenses/{expenseId}` | `BackofficeWrite` | Atualiza gasto operacional do produto |
+| `DELETE` | `/api/v1/backoffice/products/{productId}/expenses/{expenseId}` | `BackofficeWrite` | Exclui gasto operacional do produto |
+
+#### Exemplo de custo corporativo
+
+```json
+{
+  "name": "GitHub Team",
+  "description": "Licencas administrativas do time",
+  "category": "subscriptions",
+  "amount": 320,
+  "recurrence": "monthly",
+  "vendor": "GitHub",
+  "startDate": "2026-03-01",
+  "nextBillingDate": "2026-04-01",
+  "status": "Ativo"
+}
+```
+
+#### Exemplo de gasto por produto
+
+```json
+{
+  "name": "AWS RDS",
+  "category": "hosting",
+  "amount": 480,
+  "recurrence": "monthly",
+  "notes": "Banco principal"
+}
+```
+
+Regras importantes:
+
+- `monthly`, `annual` e `one_time` são os valores aceitos para recorrência
+- custos corporativos pausados ou cancelados não entram no total mensal da empresa
+- `Desenvolvedor` não acessa a rota corporativa de custos e recebe `403 Forbidden`
+- gastos `one_time` não entram no cálculo da manutenção mensal do produto
+- a venda de produtos `development` continua persistida na licença (`developmentCost`) e pode ser exibida pela UI como lançamento financeiro informativo, sem entrar na manutenção
 
 ---
 
@@ -2026,7 +2105,6 @@ Health check da aplicação.
 | `name` (produto/cliente) | 120 caracteres |
 | `description` (produto) | 500 caracteres |
 | `category` (produto) | 120 caracteres |
-| `version` (produto) | 30 caracteres |
 | `plan` (licença/plano) | 60 caracteres |
 | `company` (cliente/contato) | 160 caracteres |
 | `phone` (cliente) | 25 caracteres |
@@ -2044,10 +2122,11 @@ Health check da aplicação.
 
 | Campo | Regra |
 |-------|-------|
-| `maxUsers` (plano) | Maior ou igual a 0; para licenciar precisa ser maior que 0 |
+| `maxUsers` (plano) | Maior que 0 quando informado; `null` significa ilimitado |
 | `monthlyPrice` (plano) | Maior ou igual a 0 |
 | `developmentCost` (plano/licença) | Maior que 0 quando informado |
 | `maintenanceCost` (plano) | Maior que 0 quando exigido pela estratégia |
+| `maintenanceProfitMargin` (plano) | Entre 0 e 100 quando informado |
 | `revenueSharePercent` (plano/licença) | Entre 0 e 100 |
 | `monthlyValue` (licença) | Maior que 0 |
 
@@ -2059,6 +2138,7 @@ Health check da aplicação.
 - `confirmPassword` deve ser igual a `newPassword`
 - `expiryDate` da licença deve ser posterior a `startDate`
 - `endDate` da sprint deve ser posterior a `startDate`
+- `version` do produto é sempre calculada como `productionDeploys.devSprintsSinceLastDeploy`
 - produtos em `Em desenvolvimento` aceitam plano em rascunho com campos comerciais pendentes
 - produtos `subscription` exigem `monthlyPrice > 0` em todos os planos quando saem do rascunho
 - produtos `development` exigem `developmentCost` e `maintenanceCost` em todos os planos quando saem do rascunho

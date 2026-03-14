@@ -13,6 +13,7 @@ public sealed class UpsertProductPlanRequestValidator : AbstractValidator<Upsert
         RuleFor(x => x.DevelopmentCost).GreaterThanOrEqualTo(0).When(x => x.DevelopmentCost.HasValue);
         RuleFor(x => x.MaintenanceCost).GreaterThanOrEqualTo(0).When(x => x.MaintenanceCost.HasValue);
         RuleFor(x => x.RevenueSharePercent).InclusiveBetween(0, 100).When(x => x.RevenueSharePercent.HasValue);
+        RuleFor(x => x.MaintenanceProfitMargin).InclusiveBetween(0, 100).When(x => x.MaintenanceProfitMargin.HasValue);
     }
 }
 
@@ -21,11 +22,10 @@ public sealed class CreateProductRequestValidator : AbstractValidator<CreateProd
     public CreateProductRequestValidator()
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(120);
-        RuleFor(x => x.Description).NotEmpty().MaximumLength(500);
-        RuleFor(x => x.Category).NotEmpty().MaximumLength(120);
+        RuleFor(x => x.Description).MaximumLength(500);
+        RuleFor(x => x.Category).MaximumLength(120);
         RuleFor(x => x.Status).Must(BeValidStatus);
         RuleFor(x => x.SalesStrategy).Must(BeValidSalesStrategy);
-        RuleFor(x => x.Version).NotEmpty().MaximumLength(30);
         RuleFor(x => x.Plans).NotEmpty();
         RuleForEach(x => x.Plans).SetValidator(new UpsertProductPlanRequestValidator());
         RuleFor(x => x).Custom(ValidatePlanPricing);
@@ -48,11 +48,10 @@ public sealed class UpdateProductRequestValidator : AbstractValidator<UpdateProd
     public UpdateProductRequestValidator()
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(120);
-        RuleFor(x => x.Description).NotEmpty().MaximumLength(500);
-        RuleFor(x => x.Category).NotEmpty().MaximumLength(120);
+        RuleFor(x => x.Description).MaximumLength(500);
+        RuleFor(x => x.Category).MaximumLength(120);
         RuleFor(x => x.Status).Must(BeValidStatus);
         RuleFor(x => x.SalesStrategy).Must(BeValidSalesStrategy);
-        RuleFor(x => x.Version).NotEmpty().MaximumLength(30);
         RuleFor(x => x.Plans).NotEmpty();
         RuleForEach(x => x.Plans).SetValidator(new UpsertProductPlanRequestValidator());
         RuleFor(x => x).Custom(ValidatePlanPricing);
@@ -226,6 +225,42 @@ public sealed class UpdateProductTaskRequestValidator : AbstractValidator<Update
         priority is "low" or "medium" or "high" or "critical";
 }
 
+public sealed class CreateProductExpenseRequestValidator : AbstractValidator<CreateProductExpenseRequest>
+{
+    public CreateProductExpenseRequestValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(160);
+        RuleFor(x => x.Category).Must(BeValidExpenseCategory);
+        RuleFor(x => x.Amount).GreaterThan(0);
+        RuleFor(x => x.Recurrence).Must(BeValidExpenseRecurrence);
+        RuleFor(x => x.Notes).MaximumLength(1000);
+    }
+
+    private static bool BeValidExpenseCategory(string category) =>
+        category is "hosting" or "domain" or "tools" or "apis" or "infrastructure" or "licenses" or "other";
+
+    private static bool BeValidExpenseRecurrence(string recurrence) =>
+        recurrence is "monthly" or "annual" or "one_time";
+}
+
+public sealed class UpdateProductExpenseRequestValidator : AbstractValidator<UpdateProductExpenseRequest>
+{
+    public UpdateProductExpenseRequestValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(160);
+        RuleFor(x => x.Category).Must(BeValidExpenseCategory);
+        RuleFor(x => x.Amount).GreaterThan(0);
+        RuleFor(x => x.Recurrence).Must(BeValidExpenseRecurrence);
+        RuleFor(x => x.Notes).MaximumLength(1000);
+    }
+
+    private static bool BeValidExpenseCategory(string category) =>
+        category is "hosting" or "domain" or "tools" or "apis" or "infrastructure" or "licenses" or "other";
+
+    private static bool BeValidExpenseRecurrence(string recurrence) =>
+        recurrence is "monthly" or "annual" or "one_time";
+}
+
 public sealed class ProductPermissionSetDtoValidator : AbstractValidator<ProductPermissionSetDto>
 {
     public ProductPermissionSetDtoValidator()
@@ -241,6 +276,7 @@ public sealed class ProductCollaboratorPermissionsDtoValidator : AbstractValidat
         RuleFor(x => x.Tasks).SetValidator(new ProductPermissionSetDtoValidator());
         RuleFor(x => x.Sprints).SetValidator(new ProductPermissionSetDtoValidator());
         RuleFor(x => x.Licenses).SetValidator(new ProductPermissionSetDtoValidator());
+        RuleFor(x => x.Plans).SetValidator(new ProductPermissionSetDtoValidator());
         RuleFor(x => x.Product).SetValidator(new ProductPermissionSetDtoValidator());
     }
 }
@@ -294,18 +330,8 @@ internal static class ProductValidationRules
                         addFailure(nameof(plan.DevelopmentCost), $"O plano '{plan.Name}' precisa ter custo de desenvolvimento.");
                     }
 
-                    if (!allowDraftPlan && (!plan.MaintenanceCost.HasValue || plan.MaintenanceCost.Value <= 0))
-                    {
-                        addFailure(nameof(plan.MaintenanceCost), $"O plano '{plan.Name}' precisa ter custo de manutenção.");
-                    }
-
                     break;
                 case "revenue_share":
-                    if (!allowDraftPlan && (!plan.MaintenanceCost.HasValue || plan.MaintenanceCost.Value <= 0))
-                    {
-                        addFailure(nameof(plan.MaintenanceCost), $"O plano '{plan.Name}' precisa ter custo de manutenção.");
-                    }
-
                     if (!allowDraftPlan && (!plan.RevenueSharePercent.HasValue || plan.RevenueSharePercent.Value <= 0))
                     {
                         addFailure(nameof(plan.RevenueSharePercent), $"O plano '{plan.Name}' precisa ter percentual de participação.");

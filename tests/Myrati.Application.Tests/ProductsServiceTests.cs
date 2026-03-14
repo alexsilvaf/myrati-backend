@@ -53,8 +53,7 @@ public sealed class ProductsServiceTests
             Category = "Teste",
             Status = "Em desenvolvimento",
             SalesStrategy = "subscription",
-            CreatedDate = ApplicationTime.LocalToday(),
-            Version = "1.0.0"
+            CreatedDate = ApplicationTime.LocalToday()
         });
 
         await scope.Context.AddAsync(new ConnectedUser
@@ -110,6 +109,34 @@ public sealed class ProductsServiceTests
         await Assert.ThrowsAsync<ConflictException>(() => service.DeleteSprintAsync("PRD-004", "SPR-003"));
     }
 
+    [Fact]
+    public async Task RecordProductionDeploymentAsync_IncrementsProdAndResetsDevVersion()
+    {
+        await using var scope = await SeededDbContextScope.CreateAsync();
+        var publisher = new TestRealtimeEventPublisher();
+        var service = CreateService(scope.Context, publisher);
+
+        var sprint = await service.CreateSprintAsync(
+            "PRD-004",
+            new CreateProductSprintRequest(
+                "Sprint 6 - Deploy",
+                "2026-03-20",
+                "2026-04-03",
+                "Planejada"));
+
+        Assert.NotNull(sprint);
+
+        var beforeDeploy = await service.GetProductAsync("PRD-004");
+        Assert.Equal("0.6", beforeDeploy.Version);
+
+        var deployed = await service.RecordProductionDeploymentAsync("PRD-004");
+
+        Assert.Equal(1, deployed.ProductionDeploys);
+        Assert.Equal(0, deployed.DevSprintsSinceLastDeploy);
+        Assert.Equal("1.0", deployed.Version);
+        Assert.Contains(publisher.Events, x => x.EventType == "product.deployed");
+    }
+
     private static ProductsService CreateService(
         Infrastructure.Persistence.MyratiDbContext context,
         TestRealtimeEventPublisher publisher) =>
@@ -126,6 +153,8 @@ public sealed class ProductsServiceTests
             new UpdateProductSprintRequestValidator(),
             new CreateProductTaskRequestValidator(),
             new UpdateProductTaskRequestValidator(),
+            new CreateProductExpenseRequestValidator(),
+            new UpdateProductExpenseRequestValidator(),
             new AddProductCollaboratorRequestValidator(),
             new UpdateProductCollaboratorRequestValidator(),
             publisher,

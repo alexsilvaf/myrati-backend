@@ -27,6 +27,11 @@ public sealed class ProductCollaborator
     public bool LicensesEdit { get; set; }
     public bool LicensesDelete { get; set; }
 
+    public bool PlansView { get; set; }
+    public bool PlansCreate { get; set; }
+    public bool PlansEdit { get; set; }
+    public bool PlansDelete { get; set; }
+
     public bool ProductView { get; set; }
     public bool ProductCreate { get; set; }
     public bool ProductEdit { get; set; }

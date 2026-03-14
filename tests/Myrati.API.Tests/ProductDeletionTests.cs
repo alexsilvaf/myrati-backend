@@ -28,7 +28,6 @@ public sealed class ProductDeletionTests(CustomWebApplicationFactory factory)
                 Description = "Produto temporario para teste de exclusao.",
                 Category = "Teste",
                 Status = "Ativo",
-                Version = "1.0.0",
                 CreatedDate = new DateOnly(2026, 3, 9)
             });
             await dbContext.AddAsync(new ProductPlan

@@ -7,6 +7,7 @@ builder.AddMyratiServiceHost(
     "Myrati Backoffice Service",
     typeof(AuditLogsController),
     typeof(ComplianceController),
+    typeof(CostsController),
     typeof(DashboardController),
     typeof(ProductsController),
     typeof(ProductKanbanController),

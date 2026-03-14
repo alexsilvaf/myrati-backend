@@ -24,6 +24,8 @@ public sealed class ProductsService(
     IValidator<UpdateProductSprintRequest> updateSprintValidator,
     IValidator<CreateProductTaskRequest> createTaskValidator,
     IValidator<UpdateProductTaskRequest> updateTaskValidator,
+    IValidator<CreateProductExpenseRequest> createExpenseValidator,
+    IValidator<UpdateProductExpenseRequest> updateExpenseValidator,
     IValidator<AddProductCollaboratorRequest> addCollaboratorValidator,
     IValidator<UpdateProductCollaboratorRequest> updateCollaboratorValidator,
     IRealtimeEventPublisher realtimeEventPublisher,
@@ -35,17 +37,20 @@ public sealed class ProductsService(
     public async Task<IReadOnlyCollection<ProductSummaryDto>> GetProductsAsync(CancellationToken cancellationToken = default)
     {
         var productsQuery = dbContext.Products.AsQueryable();
+        var currentCollaboratorsByProductId = new Dictionary<string, ProductCollaborator>(StringComparer.Ordinal);
 
         if (!IsAdminRole(currentUserContext.Role))
         {
             var currentUserId = GetRequiredCurrentUserId();
-            var visibleProductIds = await dbContext.ProductCollaborators
+            var currentCollaborators = await dbContext.ProductCollaborators
                 .Where(x => x.MemberId == currentUserId)
-                .Select(x => x.ProductId)
-                .Distinct()
                 .ToListAsync(cancellationToken);
+            currentCollaboratorsByProductId = currentCollaborators
+                .GroupBy(x => x.ProductId, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            var visibleProductIds = currentCollaboratorsByProductId.Keys.ToArray();
 
-            if (visibleProductIds.Count == 0)
+            if (visibleProductIds.Length == 0)
             {
                 return [];
             }
@@ -67,6 +72,9 @@ public sealed class ProductsService(
             .Where(x => productIds.Contains(x.ProductId))
             .ToListAsync(cancellationToken);
         var licenses = await dbContext.Licenses
+            .Where(x => productIds.Contains(x.ProductId))
+            .ToListAsync(cancellationToken);
+        var expenses = await dbContext.ProductExpenses
             .Where(x => productIds.Contains(x.ProductId))
             .ToListAsync(cancellationToken);
         var collaborators = await dbContext.ProductCollaborators
@@ -94,8 +102,11 @@ public sealed class ProductsService(
                 product,
                 plans.Where(x => x.ProductId == product.Id),
                 licenses.Where(x => x.ProductId == product.Id),
+                expenses.Where(x => x.ProductId == product.Id),
                 collaborators.Where(x => x.ProductId == product.Id),
-                membersById))
+                membersById,
+                IsAdminRole(currentUserContext.Role)
+                    || (currentCollaboratorsByProductId.TryGetValue(product.Id, out var collaborator) && collaborator.PlansView)))
             .ToArray();
     }
 
@@ -113,10 +124,17 @@ public sealed class ProductsService(
             .OrderByDescending(x => x.Status == "Ativa")
             .ThenBy(x => x.ExpiryDate)
             .ToListAsync(cancellationToken);
+        var expenses = await dbContext.ProductExpenses
+            .Where(x => x.ProductId == product.Id)
+            .OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
         var clients = await dbContext.Clients.ToListAsync(cancellationToken);
         var collaborators = await dbContext.ProductCollaborators
             .Where(x => x.ProductId == product.Id)
             .ToListAsync(cancellationToken);
+        var currentCollaborator = !IsAdminRole(currentUserContext.Role)
+            ? collaborators.FirstOrDefault(x => x.MemberId == GetRequiredCurrentUserId())
+            : null;
         var collaboratorMemberIds = collaborators
             .Select(x => x.MemberId)
             .Distinct()
@@ -134,7 +152,16 @@ public sealed class ProductsService(
         }
         var kanban = await BuildKanbanAsync(product, cancellationToken);
 
-        return MapProductDetail(product, plans, collaborators, membersById, licenses, clients, kanban);
+        return MapProductDetail(
+            product,
+            plans,
+            expenses,
+            collaborators,
+            membersById,
+            licenses,
+            clients,
+            kanban,
+            IsAdminRole(currentUserContext.Role) || currentCollaborator?.PlansView == true);
     }
 
     public async Task<ProductDetailDto> CreateProductAsync(CreateProductRequest request, CancellationToken cancellationToken = default)
@@ -174,6 +201,7 @@ public sealed class ProductsService(
         CancellationToken cancellationToken = default)
     {
         await EnsureProductPermissionAsync(productId, ProductPermissionScope.Product, ProductPermissionAction.Edit, cancellationToken);
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Plans, ProductPermissionAction.Edit, cancellationToken);
         await updateProductValidator.ValidateRequestAsync(request, cancellationToken);
 
         var product = await GetProductEntityAsync(productId, cancellationToken);
@@ -193,8 +221,6 @@ public sealed class ProductsService(
         product.Category = request.Category.Trim();
         product.Status = request.Status;
         product.SalesStrategy = request.SalesStrategy;
-        product.Version = request.Version.Trim();
-        dbContext.Update(product);
 
         var existingPlans = await dbContext.ProductPlans
             .Where(x => x.ProductId == productId)
@@ -210,6 +236,37 @@ public sealed class ProductsService(
 
         var response = await GetProductAsync(productId, cancellationToken);
         await PublishBackofficeEventAsync("product.updated", response, cancellationToken);
+        return response;
+    }
+
+    public async Task<ProductDetailDto> RecordProductionDeploymentAsync(
+        string productId,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Product, ProductPermissionAction.Edit, cancellationToken);
+        var product = await GetProductEntityAsync(productId, cancellationToken);
+
+        if (product.Status == "Inativo")
+        {
+            throw new ConflictException("Não é possível registrar deploy em produção para um produto inativo.");
+        }
+
+        product.ProductionDeploys += 1;
+        product.DevSprintsSinceLastDeploy = 0;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var response = await GetProductAsync(productId, cancellationToken);
+        await PublishBackofficeEventAsync(
+            "product.deployed",
+            new
+            {
+                product.Id,
+                product.Name,
+                product.ProductionDeploys,
+                product.DevSprintsSinceLastDeploy,
+                Version = BuildProductVersion(product)
+            },
+            cancellationToken);
         return response;
     }
 
@@ -271,6 +328,7 @@ public sealed class ProductsService(
         CancellationToken cancellationToken = default)
     {
         await EnsureProductPermissionAsync(productId, ProductPermissionScope.Licenses, ProductPermissionAction.Create, cancellationToken);
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Plans, ProductPermissionAction.View, cancellationToken);
         await createLicenseValidator.ValidateRequestAsync(request, cancellationToken);
 
         var product = await GetProductEntityAsync(productId, cancellationToken);
@@ -325,6 +383,7 @@ public sealed class ProductsService(
             .FirstOrDefaultAsync(x => x.Id == licenseId, cancellationToken)
             ?? throw new EntityNotFoundException("Licença", licenseId);
         await EnsureProductPermissionAsync(license.ProductId, ProductPermissionScope.Licenses, ProductPermissionAction.Edit, cancellationToken);
+        await EnsureProductPermissionAsync(license.ProductId, ProductPermissionScope.Plans, ProductPermissionAction.View, cancellationToken);
         var client = await dbContext.Clients
             .FirstOrDefaultAsync(x => x.Id == request.ClientId, cancellationToken)
             ?? throw new EntityNotFoundException("Cliente", request.ClientId);
@@ -441,6 +500,21 @@ public sealed class ProductsService(
         return await BuildKanbanAsync(product, cancellationToken);
     }
 
+    public async Task<IReadOnlyCollection<ProductExpenseDto>> GetExpensesAsync(
+        string productId,
+        CancellationToken cancellationToken = default)
+    {
+        _ = await GetProductEntityAsync(productId, cancellationToken);
+        await EnsureProductReadAccessAsync(productId, cancellationToken);
+
+        return await dbContext.ProductExpenses
+            .Where(x => x.ProductId == productId)
+            .OrderByDescending(x => x.CreatedDate)
+            .ThenBy(x => x.Name)
+            .Select(x => MapExpense(x))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<ProductSprintDto> CreateSprintAsync(
         string productId,
         CreateProductSprintRequest request,
@@ -471,6 +545,7 @@ public sealed class ProductsService(
             SortOrder = await GetNextSprintSortOrderAsync(productId, cancellationToken)
         };
 
+        product.DevSprintsSinceLastDeploy += 1;
         await dbContext.AddAsync(sprint, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -616,6 +691,72 @@ public sealed class ProductsService(
         await PublishBackofficeEventAsync("task.deleted", new { task.Id, task.ProductId, task.SprintId, task.Title }, cancellationToken);
     }
 
+    public async Task<ProductExpenseDto> CreateExpenseAsync(
+        string productId,
+        CreateProductExpenseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Product, ProductPermissionAction.Edit, cancellationToken);
+        await createExpenseValidator.ValidateRequestAsync(request, cancellationToken);
+        _ = await GetProductEntityAsync(productId, cancellationToken);
+
+        var expense = new ProductExpense
+        {
+            Id = IdGenerator.NextPrefixedId(
+                "EXP-",
+                await dbContext.ProductExpenses.Select(x => x.Id).ToListAsync(cancellationToken)),
+            ProductId = productId,
+            Name = request.Name.Trim(),
+            Category = request.Category,
+            Amount = request.Amount,
+            Recurrence = request.Recurrence,
+            Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+            CreatedDate = ApplicationTime.LocalToday()
+        };
+
+        await dbContext.AddAsync(expense, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var response = MapExpense(expense);
+        await PublishBackofficeEventAsync("product.expense.created", response, cancellationToken);
+        return response;
+    }
+
+    public async Task<ProductExpenseDto> UpdateExpenseAsync(
+        string productId,
+        string expenseId,
+        UpdateProductExpenseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Product, ProductPermissionAction.Edit, cancellationToken);
+        await updateExpenseValidator.ValidateRequestAsync(request, cancellationToken);
+        _ = await GetProductEntityAsync(productId, cancellationToken);
+
+        var expense = await GetExpenseAsync(productId, expenseId, cancellationToken);
+        expense.Name = request.Name.Trim();
+        expense.Category = request.Category;
+        expense.Amount = request.Amount;
+        expense.Recurrence = request.Recurrence;
+        expense.Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
+        dbContext.Update(expense);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var response = MapExpense(expense);
+        await PublishBackofficeEventAsync("product.expense.updated", response, cancellationToken);
+        return response;
+    }
+
+    public async Task DeleteExpenseAsync(string productId, string expenseId, CancellationToken cancellationToken = default)
+    {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Product, ProductPermissionAction.Edit, cancellationToken);
+        _ = await GetProductEntityAsync(productId, cancellationToken);
+
+        var expense = await GetExpenseAsync(productId, expenseId, cancellationToken);
+        dbContext.Remove(expense);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await PublishBackofficeEventAsync("product.expense.deleted", new { expense.Id, expense.ProductId, expense.Name }, cancellationToken);
+    }
+
     public async Task<ProductCollaboratorDto> AddCollaboratorAsync(
         string productId,
         AddProductCollaboratorRequest request,
@@ -710,7 +851,6 @@ public sealed class ProductsService(
             Category = request.Category.Trim(),
             Status = request.Status,
             SalesStrategy = request.SalesStrategy,
-            Version = request.Version.Trim(),
             CreatedDate = ApplicationTime.LocalToday()
         };
 
@@ -846,6 +986,11 @@ public sealed class ProductsService(
             }
         }
 
+        if (createdSprintCount > 0)
+        {
+            product.DevSprintsSinceLastDeploy += createdSprintCount;
+        }
+
         return new ProductBacklogImportResultDto(
             createdSprintCount,
             reusedSprintCount,
@@ -875,7 +1020,8 @@ public sealed class ProductsService(
                 MonthlyPrice = plan.MonthlyPrice,
                 DevelopmentCost = NormalizeOptionalMoney(plan.DevelopmentCost),
                 MaintenanceCost = NormalizeOptionalMoney(plan.MaintenanceCost),
-                RevenueSharePercent = NormalizeOptionalPercent(plan.RevenueSharePercent)
+                RevenueSharePercent = NormalizeOptionalPercent(plan.RevenueSharePercent),
+                MaintenanceProfitMargin = NormalizeOptionalPercent(plan.MaintenanceProfitMargin)
             }, cancellationToken);
         }
     }
@@ -921,8 +1067,9 @@ public sealed class ProductsService(
             .FirstOrDefaultAsync(x => x.Id == license.ClientId, cancellationToken)
             ?? throw new EntityNotFoundException("Cliente", license.ClientId);
         var product = await GetProductEntityAsync(license.ProductId, cancellationToken);
+        var canViewPlans = await CanCurrentUserViewPlansAsync(license.ProductId, cancellationToken);
 
-        return MapLicense(license, client.Company, product.Name);
+        return MapLicense(license, client.Company, product.Name, canViewPlans);
     }
 
     private async Task<ProductPlan> GetPlanAsync(string productId, string planName, CancellationToken cancellationToken)
@@ -951,6 +1098,14 @@ public sealed class ProductsService(
             .FirstOrDefaultAsync(x => x.Id == taskId && x.ProductId == productId, cancellationToken);
 
         return task ?? throw new EntityNotFoundException("Tarefa", taskId);
+    }
+
+    private async Task<ProductExpense> GetExpenseAsync(string productId, string expenseId, CancellationToken cancellationToken)
+    {
+        var expense = await dbContext.ProductExpenses
+            .FirstOrDefaultAsync(x => x.Id == expenseId && x.ProductId == productId, cancellationToken);
+
+        return expense ?? throw new EntityNotFoundException("Gasto", expenseId);
     }
 
     private async Task<string> GenerateUniqueLicenseKeyAsync(CancellationToken cancellationToken)
@@ -1136,10 +1291,16 @@ public sealed class ProductsService(
         Product product,
         IEnumerable<ProductPlan> plans,
         IEnumerable<License> licenses,
+        IEnumerable<ProductExpense> expenses,
         IEnumerable<ProductCollaborator> collaborators,
-        IReadOnlyDictionary<string, Domain.Identity.AdminUser> membersById)
+        IReadOnlyDictionary<string, Domain.Identity.AdminUser> membersById,
+        bool canViewPlans)
     {
+        var plansList = plans
+            .OrderBy(x => x.Id)
+            .ToArray();
         var licensesList = licenses.ToList();
+        var expensesList = expenses.ToList();
         var collaboratorSummaries = collaborators
             .Select(collaborator =>
             {
@@ -1164,27 +1325,35 @@ public sealed class ProductsService(
             product.SalesStrategy,
             licensesList.Count,
             licensesList.Count(x => x.Status == "Ativa"),
-            licensesList.Where(x => x.Status == "Ativa").Sum(x => x.MonthlyValue),
+            canViewPlans ? CalculateProductMonthlyRevenue(product, plansList, licensesList, expensesList) : 0m,
             product.CreatedDate.ToIsoDate(),
-            product.Version,
-            plans
-                .OrderBy(x => x.Id)
-                .Select(MapPlan)
-                .ToArray(),
+            product.ProductionDeploys,
+            product.DevSprintsSinceLastDeploy,
+            BuildProductVersion(product),
+            canViewPlans,
+            canViewPlans
+                ? plansList.Select(MapPlan).ToArray()
+                : [],
             collaboratorSummaries);
     }
 
     private static ProductDetailDto MapProductDetail(
         Product product,
         IEnumerable<ProductPlan> plans,
+        IEnumerable<ProductExpense> expenses,
         IEnumerable<ProductCollaborator> collaborators,
         IReadOnlyDictionary<string, Domain.Identity.AdminUser> membersById,
         IEnumerable<License> licenses,
         IEnumerable<Domain.Clients.Client> clients,
-        ProductKanbanDto kanban)
+        ProductKanbanDto kanban,
+        bool canViewPlans)
     {
+        var plansList = plans
+            .OrderBy(x => x.Id)
+            .ToArray();
         var clientsById = clients.ToDictionary(x => x.Id);
         var licensesList = licenses.ToList();
+        var expensesList = expenses.ToList();
         var collaboratorDetails = collaborators
             .Select(collaborator =>
             {
@@ -1209,13 +1378,15 @@ public sealed class ProductsService(
             product.SalesStrategy,
             licensesList.Count,
             licensesList.Count(x => x.Status == "Ativa"),
-            licensesList.Where(x => x.Status == "Ativa").Sum(x => x.MonthlyValue),
+            canViewPlans ? CalculateProductMonthlyRevenue(product, plansList, licensesList, expensesList) : 0m,
             product.CreatedDate.ToIsoDate(),
-            product.Version,
-            plans
-                .OrderBy(x => x.Id)
-                .Select(MapPlan)
-                .ToArray(),
+            product.ProductionDeploys,
+            product.DevSprintsSinceLastDeploy,
+            BuildProductVersion(product),
+            canViewPlans,
+            canViewPlans
+                ? plansList.Select(MapPlan).ToArray()
+                : [],
             collaboratorDetails,
             licensesList
                 .Select(license =>
@@ -1223,11 +1394,71 @@ public sealed class ProductsService(
                     var clientName = clientsById.TryGetValue(license.ClientId, out var client)
                         ? client.Company
                         : "Cliente removido";
-                    return MapLicense(license, clientName, product.Name);
+                    return MapLicense(license, clientName, product.Name, canViewPlans);
                 })
                 .ToArray(),
             kanban);
     }
+
+    private static decimal CalculateProductMonthlyRevenue(
+        Product product,
+        IReadOnlyCollection<ProductPlan> plans,
+        IReadOnlyCollection<License> licenses,
+        IReadOnlyCollection<ProductExpense> expenses)
+    {
+        if (!string.Equals(product.Status, "Ativo", StringComparison.Ordinal))
+        {
+            return 0m;
+        }
+
+        var activeLicenseRevenue = licenses
+            .Where(x => x.Status == "Ativa")
+            .Sum(x => x.MonthlyValue);
+
+        return product.SalesStrategy switch
+        {
+            "development" or "revenue_share" when activeLicenseRevenue <= 0 =>
+                CalculateMaintenanceMonthlyRevenue(plans, expenses),
+            _ => activeLicenseRevenue
+        };
+    }
+
+    private static decimal CalculateMaintenanceMonthlyRevenue(
+        IReadOnlyCollection<ProductPlan> plans,
+        IReadOnlyCollection<ProductExpense> expenses)
+    {
+        var primaryPlanMaintenanceCost = plans
+            .FirstOrDefault(plan => plan.MaintenanceCost.HasValue && plan.MaintenanceCost.Value > 0)?
+            .MaintenanceCost;
+
+        if (primaryPlanMaintenanceCost.HasValue)
+        {
+            return primaryPlanMaintenanceCost.Value;
+        }
+
+        var monthlyExpenses = expenses.Sum(CalculateMonthlyExpenseEquivalent);
+        if (monthlyExpenses <= 0)
+        {
+            return 0m;
+        }
+
+        var averageProfitMargin = plans
+            .Where(plan => plan.MaintenanceProfitMargin.HasValue)
+            .Select(plan => plan.MaintenanceProfitMargin!.Value)
+            .DefaultIfEmpty(0m)
+            .Average();
+
+        var maintenanceRevenue = monthlyExpenses * (1 + (averageProfitMargin / 100m));
+        return Math.Round(maintenanceRevenue, 0, MidpointRounding.AwayFromZero);
+    }
+
+    private static decimal CalculateMonthlyExpenseEquivalent(ProductExpense expense) =>
+        expense.Recurrence switch
+        {
+            "monthly" => expense.Amount,
+            "annual" => expense.Amount / 12m,
+            _ => 0m
+        };
 
     private static ProductPlanDto MapPlan(ProductPlan plan) =>
         new(
@@ -1237,24 +1468,36 @@ public sealed class ProductsService(
             plan.MonthlyPrice,
             plan.DevelopmentCost,
             plan.MaintenanceCost,
-            plan.RevenueSharePercent);
+            plan.RevenueSharePercent,
+            plan.MaintenanceProfitMargin);
 
-    private static LicenseDto MapLicense(License license, string clientName, string productName) =>
+    private static ProductExpenseDto MapExpense(ProductExpense expense) =>
+        new(
+            expense.Id,
+            expense.ProductId,
+            expense.Name,
+            expense.Category,
+            expense.Amount,
+            expense.Recurrence,
+            expense.Notes,
+            expense.CreatedDate.ToIsoDate());
+
+    private static LicenseDto MapLicense(License license, string clientName, string productName, bool canViewPlans = true) =>
         new(
             license.Id,
             license.ClientId,
             clientName,
             license.ProductId,
             productName,
-            license.Plan,
+            canViewPlans ? license.Plan : "Restrito",
             license.MaxUsers,
             license.ActiveUsers,
             license.Status,
             license.StartDate.ToIsoDate(),
             license.ExpiryDate.ToIsoDate(),
-            license.MonthlyValue,
-            license.DevelopmentCost,
-            license.RevenueSharePercent);
+            canViewPlans ? license.MonthlyValue : 0m,
+            canViewPlans ? license.DevelopmentCost : null,
+            canViewPlans ? license.RevenueSharePercent : null);
 
     private static ProductCollaboratorSummaryDto MapCollaboratorSummary(
         ProductCollaborator collaborator,
@@ -1298,6 +1541,9 @@ public sealed class ProductsService(
             task.Assignee,
             DeserializeTags(task.TagsSerialized),
             task.CreatedDate.ToIsoDate());
+
+    private static string BuildProductVersion(Product product) =>
+        $"{product.ProductionDeploys}.{product.DevSprintsSinceLastDeploy}";
 
     private static string SerializeTags(IReadOnlyCollection<string> tags)
     {
@@ -1356,6 +1602,20 @@ public sealed class ProductsService(
         {
             throw new ForbiddenException("Você não possui acesso a este produto.");
         }
+    }
+
+    private async Task<bool> CanCurrentUserViewPlansAsync(string productId, CancellationToken cancellationToken)
+    {
+        if (IsAdminRole(currentUserContext.Role))
+        {
+            return true;
+        }
+
+        var currentUserId = GetRequiredCurrentUserId();
+        return await dbContext.ProductCollaborators
+            .Where(x => x.ProductId == productId && x.MemberId == currentUserId)
+            .Select(x => x.PlansView)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task EnsureProductPermissionAsync(
@@ -1423,6 +1683,10 @@ public sealed class ProductsService(
             (ProductPermissionScope.Licenses, ProductPermissionAction.Create) => collaborator.LicensesCreate,
             (ProductPermissionScope.Licenses, ProductPermissionAction.Edit) => collaborator.LicensesEdit,
             (ProductPermissionScope.Licenses, ProductPermissionAction.Delete) => collaborator.LicensesDelete,
+            (ProductPermissionScope.Plans, ProductPermissionAction.View) => collaborator.PlansView,
+            (ProductPermissionScope.Plans, ProductPermissionAction.Create) => collaborator.PlansCreate,
+            (ProductPermissionScope.Plans, ProductPermissionAction.Edit) => collaborator.PlansEdit,
+            (ProductPermissionScope.Plans, ProductPermissionAction.Delete) => collaborator.PlansDelete,
             (ProductPermissionScope.Product, ProductPermissionAction.View) => collaborator.ProductView,
             (ProductPermissionScope.Product, ProductPermissionAction.Create) => collaborator.ProductCreate,
             (ProductPermissionScope.Product, ProductPermissionAction.Edit) => collaborator.ProductEdit,
@@ -1450,6 +1714,11 @@ public sealed class ProductsService(
         collaborator.LicensesEdit = normalized.Licenses.Edit;
         collaborator.LicensesDelete = normalized.Licenses.Delete;
 
+        collaborator.PlansView = normalized.Plans.View;
+        collaborator.PlansCreate = normalized.Plans.Create;
+        collaborator.PlansEdit = normalized.Plans.Edit;
+        collaborator.PlansDelete = normalized.Plans.Delete;
+
         collaborator.ProductView = normalized.Product.View;
         collaborator.ProductCreate = normalized.Product.Create;
         collaborator.ProductEdit = normalized.Product.Edit;
@@ -1461,10 +1730,12 @@ public sealed class ProductsService(
             NormalizePermissionSet(permissions.Tasks),
             NormalizePermissionSet(permissions.Sprints),
             NormalizePermissionSet(permissions.Licenses),
+            NormalizePermissionSet(permissions.Plans),
             NormalizePermissionSet(permissions.Product));
 
     private static ProductCollaboratorPermissionsDto CreateFullAccessPermissions() =>
         new(
+            new ProductPermissionSetDto(true, true, true, true),
             new ProductPermissionSetDto(true, true, true, true),
             new ProductPermissionSetDto(true, true, true, true),
             new ProductPermissionSetDto(true, true, true, true),
@@ -1481,6 +1752,7 @@ public sealed class ProductsService(
             new ProductPermissionSetDto(collaborator.TasksView, collaborator.TasksCreate, collaborator.TasksEdit, collaborator.TasksDelete),
             new ProductPermissionSetDto(collaborator.SprintsView, collaborator.SprintsCreate, collaborator.SprintsEdit, collaborator.SprintsDelete),
             new ProductPermissionSetDto(collaborator.LicensesView, collaborator.LicensesCreate, collaborator.LicensesEdit, collaborator.LicensesDelete),
+            new ProductPermissionSetDto(collaborator.PlansView, collaborator.PlansCreate, collaborator.PlansEdit, collaborator.PlansDelete),
             new ProductPermissionSetDto(collaborator.ProductView, collaborator.ProductCreate, collaborator.ProductEdit, collaborator.ProductDelete));
 
     private async ValueTask PublishBackofficeEventAsync(string eventType, object payload, CancellationToken cancellationToken)
@@ -1496,6 +1768,7 @@ public sealed class ProductsService(
         Tasks,
         Sprints,
         Licenses,
+        Plans,
         Product
     }
 

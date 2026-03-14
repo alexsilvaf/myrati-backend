@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Myrati.Application.Abstractions;
 using Myrati.Application.Common;
 using Myrati.Domain.Clients;
+using Myrati.Domain.Costs;
 using Myrati.Domain.Dashboard;
 using Myrati.Domain.Identity;
 using Myrati.Domain.Products;
@@ -51,7 +52,8 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
                 Status = productSeed.Status,
                 SalesStrategy = productSeed.SalesStrategy,
                 CreatedDate = ParseDate(productSeed.CreatedDate),
-                Version = productSeed.Version
+                ProductionDeploys = productSeed.ProductionDeploys,
+                DevSprintsSinceLastDeploy = productSeed.DevSprintsSinceLastDeploy
             }, cancellationToken);
 
             var planIndex = 1;
@@ -66,7 +68,8 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
                     MonthlyPrice = planSeed.MonthlyPrice,
                     DevelopmentCost = planSeed.DevelopmentCost,
                     MaintenanceCost = planSeed.MaintenanceCost,
-                    RevenueSharePercent = planSeed.RevenueSharePercent
+                    RevenueSharePercent = planSeed.RevenueSharePercent,
+                    MaintenanceProfitMargin = planSeed.MaintenanceProfitMargin
                 }, cancellationToken);
                 planIndex++;
             }
@@ -153,6 +156,38 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
                 TagsSerialized = SerializeTags(taskSeed.Tags),
                 CreatedDate = ParseDate(taskSeed.CreatedDate),
                 SortOrder = taskSeed.SortOrder
+            }, cancellationToken);
+        }
+
+        foreach (var expenseSeed in ProductExpenseSeeds)
+        {
+            await context.AddAsync(new ProductExpense
+            {
+                Id = expenseSeed.Id,
+                ProductId = expenseSeed.ProductId,
+                Name = expenseSeed.Name,
+                Category = expenseSeed.Category,
+                Amount = expenseSeed.Amount,
+                Recurrence = expenseSeed.Recurrence,
+                Notes = expenseSeed.Notes,
+                CreatedDate = ParseDate(expenseSeed.CreatedDate)
+            }, cancellationToken);
+        }
+
+        foreach (var costSeed in CompanyCostSeeds)
+        {
+            await context.AddAsync(new CompanyCost
+            {
+                Id = costSeed.Id,
+                Name = costSeed.Name,
+                Description = costSeed.Description,
+                Category = costSeed.Category,
+                Amount = costSeed.Amount,
+                Recurrence = costSeed.Recurrence,
+                Vendor = costSeed.Vendor,
+                StartDate = ParseDate(costSeed.StartDate),
+                NextBillingDate = string.IsNullOrWhiteSpace(costSeed.NextBillingDate) ? null : ParseDate(costSeed.NextBillingDate),
+                Status = costSeed.Status
             }, cancellationToken);
         }
 
@@ -250,6 +285,10 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
                 LicensesCreate = collaboratorSeed.LicensesCreate,
                 LicensesEdit = collaboratorSeed.LicensesEdit,
                 LicensesDelete = collaboratorSeed.LicensesDelete,
+                PlansView = collaboratorSeed.PlansView,
+                PlansCreate = collaboratorSeed.PlansCreate,
+                PlansEdit = collaboratorSeed.PlansEdit,
+                PlansDelete = collaboratorSeed.PlansDelete,
                 ProductView = collaboratorSeed.ProductView,
                 ProductCreate = collaboratorSeed.ProductCreate,
                 ProductEdit = collaboratorSeed.ProductEdit,
@@ -345,6 +384,8 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         var legacyLicenseIds = LicenseSeeds.Select(seed => seed.Id).ToArray();
         var legacySprintIds = SprintSeeds.Select(seed => seed.Id).ToArray();
         var legacyTaskIds = TaskSeeds.Select(seed => seed.Id).ToArray();
+        var legacyProductExpenseIds = ProductExpenseSeeds.Select(seed => seed.Id).ToArray();
+        var legacyCompanyCostIds = CompanyCostSeeds.Select(seed => seed.Id).ToArray();
         var legacyRevenueSnapshotIds = RevenueSnapshotSeeds.Select(seed => seed.Id).ToArray();
         var legacyDashboardActivityIds = DashboardActivitySeeds.Select(seed => seed.Id).ToArray();
         var legacyApiKeyIds = ApiKeySeeds.Select(seed => seed.Id).ToArray();
@@ -378,12 +419,24 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
             .ToListAsync(cancellationToken);
         context.RemoveRange(legacyTasks);
 
+        var legacyProductExpenses = await context.ProductExpensesSet
+            .Where(expense =>
+                legacyProductExpenseIds.Contains(expense.Id) ||
+                legacyProductIds.Contains(expense.ProductId))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyProductExpenses);
+
         var legacySprints = await context.ProductSprintsSet
             .Where(sprint =>
                 legacySprintIds.Contains(sprint.Id) ||
                 legacyProductIds.Contains(sprint.ProductId))
             .ToListAsync(cancellationToken);
         context.RemoveRange(legacySprints);
+
+        var legacyCompanyCosts = await context.CompanyCostsSet
+            .Where(cost => legacyCompanyCostIds.Contains(cost.Id))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyCompanyCosts);
 
         var legacyProducts = await context.ProductsSet
             .Where(product => legacyProductIds.Contains(product.Id))
@@ -547,27 +600,27 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
 
     private static readonly ProductSeed[] ProductSeeds =
     [
-        new("PRD-001", "Myrati ERP", "Sistema integrado de gestão empresarial com módulos de financeiro, estoque, compras e vendas.", "Gestão Empresarial", "Ativo", "subscription", "2022-03-15", "4.2.1",
+        new("PRD-001", "Myrati ERP", "Sistema integrado de gestão empresarial com módulos de financeiro, estoque, compras e vendas.", "Gestão Empresarial", "Ativo", "subscription", "2022-03-15", 4, 2,
         [
-            new PlanSeed("Starter", 10, 890m, null, null, null),
-            new PlanSeed("Professional", 50, 3100m, null, null, null),
-            new PlanSeed("Enterprise", 200, 12000m, null, null, null)
+            new PlanSeed("Starter", 10, 890m, null, null, null, null),
+            new PlanSeed("Professional", 50, 3100m, null, null, null, null),
+            new PlanSeed("Enterprise", 200, 12000m, null, null, null, null)
         ]),
-        new("PRD-002", "Myrati CRM", "Plataforma de gestão de relacionamento com clientes, pipeline de vendas e automação de marketing.", "Vendas & Marketing", "Ativo", "subscription", "2023-01-10", "3.1.0",
+        new("PRD-002", "Myrati CRM", "Plataforma de gestão de relacionamento com clientes, pipeline de vendas e automação de marketing.", "Vendas & Marketing", "Ativo", "subscription", "2023-01-10", 3, 1,
         [
-            new PlanSeed("Starter", 5, 450m, null, null, null),
-            new PlanSeed("Professional", 40, 2200m, null, null, null),
-            new PlanSeed("Enterprise", 100, 5500m, null, null, null)
+            new PlanSeed("Starter", 5, 450m, null, null, null, null),
+            new PlanSeed("Professional", 40, 2200m, null, null, null, null),
+            new PlanSeed("Enterprise", 100, 5500m, null, null, null, null)
         ]),
-        new("PRD-003", "Myrati Analytics", "Plataforma de business intelligence com dashboards interativos, relatórios e análise preditiva.", "Inteligência de Dados", "Ativo", "development", "2023-08-20", "2.0.5",
+        new("PRD-003", "Myrati Analytics", "Plataforma de business intelligence com dashboards interativos, relatórios e análise preditiva.", "Inteligência de Dados", "Ativo", "development", "2023-08-20", 2, 3,
         [
-            new PlanSeed("Essencial", 15, 0m, 42000m, 1500m, null),
-            new PlanSeed("Completo", 100, 0m, 85000m, 3200m, null)
+            new PlanSeed("Essencial", 15, 0m, 42000m, 1500m, null, 45m),
+            new PlanSeed("Completo", 100, 0m, 85000m, 3200m, null, 55m)
         ]),
-        new("PRD-004", "Myrati HRM", "Sistema de gestão de recursos humanos com folha de pagamento, ponto eletrônico e recrutamento.", "Recursos Humanos", "Em desenvolvimento", "revenue_share", "2025-11-01", "0.9.0-beta",
+        new("PRD-004", "Myrati HRM", "Sistema de gestão de recursos humanos com folha de pagamento, ponto eletrônico e recrutamento.", "Recursos Humanos", "Em desenvolvimento", "revenue_share", "2025-11-01", 0, 5,
         [
-            new PlanSeed("Padrão", 30, 0m, null, 2000m, 5m),
-            new PlanSeed("Premium", 100, 0m, null, 4500m, 3.5m)
+            new PlanSeed("Padrão", 30, 0m, null, 2000m, 5m, 30m),
+            new PlanSeed("Premium", 100, 0m, null, 4500m, 3.5m, 25m)
         ])
     ];
 
@@ -666,6 +719,48 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         new("TSK-013", "PRD-004", "SPR-005", "Testes de performance", "Stress test e benchmark de carga com simulação de 500+ usuários simultâneos.", "backlog", "high", string.Empty, ["teste", "performance"], "2026-02-14", 2)
     ];
 
+    private static readonly ProductExpenseSeed[] ProductExpenseSeeds =
+    [
+        new("EXP-001", "PRD-001", "AWS EC2 — Produção", "hosting", 850m, "monthly", "2x t3.xlarge + RDS Multi-AZ", "2024-01-10"),
+        new("EXP-002", "PRD-001", "Domínio erp.myrati.com.br", "domain", 120m, "annual", "Registro.br", "2024-01-10"),
+        new("EXP-003", "PRD-001", "Datadog — Monitoramento", "tools", 180m, "monthly", "Plano Pro, 3 hosts", "2024-03-15"),
+        new("EXP-004", "PRD-001", "SendGrid — E-mails", "apis", 45m, "monthly", "50k e-mails/mês", "2024-02-20"),
+        new("EXP-005", "PRD-001", "SSL Certificado Wildcard", "infrastructure", 350m, "annual", null, "2024-01-10"),
+        new("EXP-006", "PRD-002", "Vercel — Hosting Frontend", "hosting", 200m, "monthly", "Plano Pro", "2024-04-01"),
+        new("EXP-007", "PRD-002", "PlanetScale — Banco de Dados", "infrastructure", 390m, "monthly", "Scaler Pro", "2024-04-01"),
+        new("EXP-008", "PRD-002", "Twilio — SMS/WhatsApp", "apis", 120m, "monthly", "Automações de marketing", "2024-05-10"),
+        new("EXP-009", "PRD-002", "Domínio crm.myrati.com.br", "domain", 120m, "annual", null, "2024-04-01"),
+        new("EXP-010", "PRD-003", "AWS Redshift — Data Warehouse", "infrastructure", 620m, "monthly", "Cluster dc2.large", "2024-08-20"),
+        new("EXP-011", "PRD-003", "Looker Studio API", "apis", 150m, "monthly", null, "2024-08-20"),
+        new("EXP-012", "PRD-003", "S3 — Armazenamento de Dados", "hosting", 95m, "monthly", "~500GB de datasets", "2024-09-05"),
+        new("EXP-013", "PRD-003", "Domínio analytics.myrati.com.br", "domain", 120m, "annual", null, "2024-08-20"),
+        new("EXP-014", "PRD-004", "Supabase — Backend", "infrastructure", 250m, "monthly", "Plano Pro", "2025-11-01"),
+        new("EXP-015", "PRD-004", "Figma — Design", "tools", 75m, "monthly", "1 editor seat", "2025-11-01"),
+        new("EXP-016", "PRD-004", "GitHub Copilot", "licenses", 57m, "monthly", "3 developers", "2025-11-01"),
+        new("EXP-017", "PRD-004", "Biometria SDK — Licença", "licenses", 2400m, "annual", "Integração com leitores biométricos", "2026-01-15")
+    ];
+
+    private static readonly CompanyCostSeed[] CompanyCostSeeds =
+    [
+        new("CC-001", "Figma", "Design e prototipacao. 4 editor seats + viewers ilimitados", "subscriptions", 180m, "monthly", "Figma Inc.", "2024-03-01", "2026-04-01", "Ativo"),
+        new("CC-002", "GitHub Team", "Repositorios privados, CI/CD Actions, Copilot Business para 6 devs", "subscriptions", 285m, "monthly", "GitHub / Microsoft", "2023-06-15", "2026-04-15", "Ativo"),
+        new("CC-003", "Slack Business+", "Comunicacao interna com canais ilimitados e integracao com ferramentas", "subscriptions", 95m, "monthly", "Salesforce", "2023-01-10", "2026-04-10", "Ativo"),
+        new("CC-004", "AWS — Conta Principal", "EC2, RDS, S3, CloudFront, Lambda. Hospedagem de todos os produtos Myrati", "cloud", 2350m, "monthly", "Amazon Web Services", "2022-11-01", "2026-04-01", "Ativo"),
+        new("CC-005", "Vercel Pro", "Deploy de frontends, edge functions e analytics", "cloud", 240m, "monthly", "Vercel Inc.", "2024-04-01", "2026-04-01", "Ativo"),
+        new("CC-006", "Dominios .com.br", "myrati.com.br, erp.myrati.com.br, crm.myrati.com.br, analytics.myrati.com.br", "domains", 480m, "annual", "Registro.br", "2022-03-15", "2027-03-15", "Ativo"),
+        new("CC-007", "SSL Wildcard Certificate", "Certificado wildcard *.myrati.com.br + *.myrati.com", "security", 890m, "annual", "DigiCert", "2024-01-10", "2027-01-10", "Ativo"),
+        new("CC-008", "Datadog Pro", "APM, logs e monitoramento de infraestrutura. 8 hosts", "tools", 420m, "monthly", "Datadog Inc.", "2024-03-15", "2026-04-15", "Ativo"),
+        new("CC-009", "Notion Team", "Documentacao interna, wikis, bases de conhecimento", "subscriptions", 60m, "monthly", "Notion Labs", "2024-01-01", "2026-04-01", "Ativo"),
+        new("CC-010", "Linear", "Gestao de projetos e issue tracking para time de desenvolvimento", "subscriptions", 64m, "monthly", "Linear Inc.", "2024-06-01", "2026-04-01", "Ativo"),
+        new("CC-011", "SendGrid Pro", "Envio de e-mails transacionais e marketing. ~200k emails/mes", "tools", 120m, "monthly", "Twilio", "2023-09-01", "2026-04-01", "Ativo"),
+        new("CC-012", "Supabase Pro", "BaaS para o HRM — auth, storage, realtime, edge functions", "infrastructure", 250m, "monthly", "Supabase Inc.", "2025-11-01", "2026-04-01", "Ativo"),
+        new("CC-013", "Google Workspace Business", "E-mail corporativo, Drive, Calendar, Meet para toda a equipe", "subscriptions", 168m, "monthly", "Google", "2022-03-01", "2026-04-01", "Ativo"),
+        new("CC-014", "1Password Business", "Gerenciador de senhas e segredos para o time", "security", 48m, "monthly", "1Password / AgileBits", "2023-05-01", "2026-04-01", "Ativo"),
+        new("CC-015", "Escritorio coworking", "Sala privativa 6 pessoas no WeWork Faria Lima", "infrastructure", 4200m, "monthly", "WeWork", "2024-01-01", "2026-04-01", "Ativo"),
+        new("CC-016", "Internet fibra dedicada", "Link dedicado 500Mbps simétrico com SLA 99.9%", "infrastructure", 890m, "monthly", "Vivo Empresas", "2024-01-01", "2026-04-01", "Ativo"),
+        new("CC-017", "Adobe Creative Cloud", "Licenca para designer — Photoshop, Illustrator, After Effects", "subscriptions", 320m, "monthly", "Adobe Inc.", "2024-02-01", null, "Cancelado")
+    ];
+
     private static readonly RevenueSnapshotSeed[] RevenueSnapshotSeeds =
     [
         new("REV-001", "Mar", 32400m, 45, 1),
@@ -715,10 +810,10 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
 
     private static readonly ProductCollaboratorSeed[] ProductCollaboratorSeeds =
     [
-        new("PRD-001", "TM-003", "2025-06-10", true, true, true, true, true, true, true, false, true, false, false, false, true, false, false, false),
-        new("PRD-001", "TM-005", "2025-08-20", true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false),
-        new("PRD-004", "TM-003", "2026-02-10", true, true, true, true, true, true, true, false, true, false, false, false, true, false, false, false),
-        new("PRD-004", "TM-005", "2026-02-12", true, true, true, false, true, false, false, false, true, false, false, false, true, false, false, false)
+        new("PRD-001", "TM-003", "2025-06-10", true, true, true, true, true, true, true, false, true, false, false, false, true, false, false, false, true, false, false, false),
+        new("PRD-001", "TM-005", "2025-08-20", true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, true, false, true, false),
+        new("PRD-004", "TM-003", "2026-02-10", true, true, true, true, true, true, true, false, true, false, false, false, true, false, false, false, true, false, false, false),
+        new("PRD-004", "TM-005", "2026-02-12", true, true, true, false, true, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false)
     ];
 
     private static readonly ProfileSessionSeed[] ProfileSessionSeeds =
@@ -780,7 +875,8 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         string Status,
         string SalesStrategy,
         string CreatedDate,
-        string Version,
+        int ProductionDeploys,
+        int DevSprintsSinceLastDeploy,
         IReadOnlyCollection<PlanSeed> Plans);
 
     private sealed record PlanSeed(
@@ -789,7 +885,8 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         decimal MonthlyPrice,
         decimal? DevelopmentCost,
         decimal? MaintenanceCost,
-        decimal? RevenueSharePercent);
+        decimal? RevenueSharePercent,
+        decimal? MaintenanceProfitMargin);
 
     private sealed record ClientSeed(
         string Id,
@@ -847,6 +944,28 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         string CreatedDate,
         int SortOrder);
 
+    private sealed record ProductExpenseSeed(
+        string Id,
+        string ProductId,
+        string Name,
+        string Category,
+        decimal Amount,
+        string Recurrence,
+        string? Notes,
+        string CreatedDate);
+
+    private sealed record CompanyCostSeed(
+        string Id,
+        string Name,
+        string Description,
+        string Category,
+        decimal Amount,
+        string Recurrence,
+        string Vendor,
+        string StartDate,
+        string? NextBillingDate,
+        string Status);
+
     private sealed record RevenueSnapshotSeed(string Id, string Month, decimal Revenue, int Licenses, int SortOrder);
 
     private sealed record DashboardActivitySeed(
@@ -886,6 +1005,10 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         bool LicensesCreate,
         bool LicensesEdit,
         bool LicensesDelete,
+        bool PlansView,
+        bool PlansCreate,
+        bool PlansEdit,
+        bool PlansDelete,
         bool ProductView,
         bool ProductCreate,
         bool ProductEdit,

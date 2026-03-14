@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Myrati.Domain.Auditing;
 using Myrati.Domain.Compliance;
+using Myrati.Domain.Costs;
 using Myrati.Domain.Dashboard;
 using Myrati.Domain.Identity;
 using Myrati.Domain.Notifications;
@@ -31,9 +32,11 @@ internal static class DatabaseSchemaCompatibilityUpgrader
             var passwordSetupTokenTable = GetTableName(context, typeof(PasswordSetupToken));
             var productPlanTable = GetTableName(context, typeof(ProductPlan));
             var productCollaboratorTable = GetTableName(context, typeof(ProductCollaborator));
+            var productExpenseTable = GetTableName(context, typeof(ProductExpense));
             var licenseTable = GetTableName(context, typeof(License));
             var sprintTable = GetTableName(context, typeof(ProductSprint));
             var taskTable = GetTableName(context, typeof(ProductTask));
+            var companyCostTable = GetTableName(context, typeof(CompanyCost));
             var adminNotificationTable = GetTableName(context, typeof(AdminNotification));
             var activityFeedTable = GetTableName(context, typeof(ActivityFeedItem));
             var dataSubjectRequestTable = GetTableName(context, typeof(DataSubjectRequest));
@@ -47,6 +50,30 @@ internal static class DatabaseSchemaCompatibilityUpgrader
                 "SalesStrategy",
                 $"""ALTER TABLE "{productTable}" ADD COLUMN "SalesStrategy" TEXT NOT NULL DEFAULT 'subscription';""",
                 $"""ALTER TABLE "{productTable}" ADD COLUMN "SalesStrategy" character varying(40) NOT NULL DEFAULT 'subscription';""",
+                cancellationToken);
+            await EnsureColumnAsync(
+                connection,
+                context.Database.ProviderName,
+                productTable,
+                "ProductionDeploys",
+                $"""ALTER TABLE "{productTable}" ADD COLUMN "ProductionDeploys" INTEGER NOT NULL DEFAULT 0;""",
+                $"""ALTER TABLE "{productTable}" ADD COLUMN "ProductionDeploys" integer NOT NULL DEFAULT 0;""",
+                cancellationToken);
+            await EnsureColumnAsync(
+                connection,
+                context.Database.ProviderName,
+                productTable,
+                "DevSprintsSinceLastDeploy",
+                $"""ALTER TABLE "{productTable}" ADD COLUMN "DevSprintsSinceLastDeploy" INTEGER NOT NULL DEFAULT 0;""",
+                $"""ALTER TABLE "{productTable}" ADD COLUMN "DevSprintsSinceLastDeploy" integer NOT NULL DEFAULT 0;""",
+                cancellationToken);
+            await EnsureColumnRemovedAsync(
+                connection,
+                context.Database.ProviderName,
+                productTable,
+                "Version",
+                $"""ALTER TABLE "{productTable}" DROP COLUMN "Version";""",
+                $"""ALTER TABLE "{productTable}" DROP COLUMN IF EXISTS "Version";""",
                 cancellationToken);
 
             await EnsureColumnAsync(
@@ -72,6 +99,14 @@ internal static class DatabaseSchemaCompatibilityUpgrader
                 "RevenueSharePercent",
                 $"""ALTER TABLE "{productPlanTable}" ADD COLUMN "RevenueSharePercent" NUMERIC NULL;""",
                 $"""ALTER TABLE "{productPlanTable}" ADD COLUMN "RevenueSharePercent" numeric(5,2) NULL;""",
+                cancellationToken);
+            await EnsureColumnAsync(
+                connection,
+                context.Database.ProviderName,
+                productPlanTable,
+                "MaintenanceProfitMargin",
+                $"""ALTER TABLE "{productPlanTable}" ADD COLUMN "MaintenanceProfitMargin" NUMERIC NULL;""",
+                $"""ALTER TABLE "{productPlanTable}" ADD COLUMN "MaintenanceProfitMargin" numeric(5,2) NULL;""",
                 cancellationToken);
             await EnsureColumnNullableAsync(
                 connection,
@@ -125,6 +160,17 @@ internal static class DatabaseSchemaCompatibilityUpgrader
                 cancellationToken);
             await EnsureSprintTableAsync(connection, context.Database.ProviderName, productTable, sprintTable, cancellationToken);
             await EnsureTaskTableAsync(connection, context.Database.ProviderName, productTable, sprintTable, taskTable, cancellationToken);
+            await EnsureProductExpenseTableAsync(
+                connection,
+                context.Database.ProviderName,
+                productTable,
+                productExpenseTable,
+                cancellationToken);
+            await EnsureCompanyCostTableAsync(
+                connection,
+                context.Database.ProviderName,
+                companyCostTable,
+                cancellationToken);
             await EnsureAdminNotificationTableAsync(
                 connection,
                 context.Database.ProviderName,
@@ -209,6 +255,24 @@ internal static class DatabaseSchemaCompatibilityUpgrader
         await ExecuteNonQueryAsync(connection, postgresSql, cancellationToken);
     }
 
+    private static async Task EnsureColumnRemovedAsync(
+        DbConnection connection,
+        string? providerName,
+        string tableName,
+        string columnName,
+        string sqliteSql,
+        string postgresSql,
+        CancellationToken cancellationToken)
+    {
+        if (!await ColumnExistsAsync(connection, providerName, tableName, columnName, cancellationToken))
+        {
+            return;
+        }
+
+        var sql = IsSqlite(providerName) ? sqliteSql : postgresSql;
+        await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+    }
+
     private static async Task EnsureProductCollaboratorTableAsync(
         DbConnection connection,
         string? providerName,
@@ -237,6 +301,10 @@ CREATE TABLE "{collaboratorTable}" (
     "LicensesCreate" INTEGER NOT NULL,
     "LicensesEdit" INTEGER NOT NULL,
     "LicensesDelete" INTEGER NOT NULL,
+    "PlansView" INTEGER NOT NULL,
+    "PlansCreate" INTEGER NOT NULL,
+    "PlansEdit" INTEGER NOT NULL,
+    "PlansDelete" INTEGER NOT NULL,
     "ProductView" INTEGER NOT NULL,
     "ProductCreate" INTEGER NOT NULL,
     "ProductEdit" INTEGER NOT NULL,
@@ -263,6 +331,10 @@ CREATE TABLE "{collaboratorTable}" (
     "LicensesCreate" boolean NOT NULL,
     "LicensesEdit" boolean NOT NULL,
     "LicensesDelete" boolean NOT NULL,
+    "PlansView" boolean NOT NULL,
+    "PlansCreate" boolean NOT NULL,
+    "PlansEdit" boolean NOT NULL,
+    "PlansDelete" boolean NOT NULL,
     "ProductView" boolean NOT NULL,
     "ProductCreate" boolean NOT NULL,
     "ProductEdit" boolean NOT NULL,
@@ -276,9 +348,68 @@ CREATE TABLE "{collaboratorTable}" (
             await ExecuteNonQueryAsync(connection, sql, cancellationToken);
         }
 
+        await EnsureMirroredPermissionColumnAsync(
+            connection,
+            providerName,
+            collaboratorTable,
+            "PlansView",
+            "ProductView",
+            $"""ALTER TABLE "{collaboratorTable}" ADD COLUMN "PlansView" INTEGER NOT NULL DEFAULT 0;""",
+            $"""ALTER TABLE "{collaboratorTable}" ADD COLUMN "PlansView" boolean NOT NULL DEFAULT false;""",
+            cancellationToken);
+        await EnsureMirroredPermissionColumnAsync(
+            connection,
+            providerName,
+            collaboratorTable,
+            "PlansCreate",
+            "ProductCreate",
+            $"""ALTER TABLE "{collaboratorTable}" ADD COLUMN "PlansCreate" INTEGER NOT NULL DEFAULT 0;""",
+            $"""ALTER TABLE "{collaboratorTable}" ADD COLUMN "PlansCreate" boolean NOT NULL DEFAULT false;""",
+            cancellationToken);
+        await EnsureMirroredPermissionColumnAsync(
+            connection,
+            providerName,
+            collaboratorTable,
+            "PlansEdit",
+            "ProductEdit",
+            $"""ALTER TABLE "{collaboratorTable}" ADD COLUMN "PlansEdit" INTEGER NOT NULL DEFAULT 0;""",
+            $"""ALTER TABLE "{collaboratorTable}" ADD COLUMN "PlansEdit" boolean NOT NULL DEFAULT false;""",
+            cancellationToken);
+        await EnsureMirroredPermissionColumnAsync(
+            connection,
+            providerName,
+            collaboratorTable,
+            "PlansDelete",
+            "ProductDelete",
+            $"""ALTER TABLE "{collaboratorTable}" ADD COLUMN "PlansDelete" INTEGER NOT NULL DEFAULT 0;""",
+            $"""ALTER TABLE "{collaboratorTable}" ADD COLUMN "PlansDelete" boolean NOT NULL DEFAULT false;""",
+            cancellationToken);
+
         await ExecuteNonQueryAsync(
             connection,
             $"""CREATE INDEX IF NOT EXISTS "IX_{collaboratorTable}_MemberId" ON "{collaboratorTable}" ("MemberId");""",
+            cancellationToken);
+    }
+
+    private static async Task EnsureMirroredPermissionColumnAsync(
+        DbConnection connection,
+        string? providerName,
+        string tableName,
+        string columnName,
+        string sourceColumnName,
+        string sqliteSql,
+        string postgresSql,
+        CancellationToken cancellationToken)
+    {
+        if (await ColumnExistsAsync(connection, providerName, tableName, columnName, cancellationToken))
+        {
+            return;
+        }
+
+        await ExecuteNonQueryAsync(connection, IsSqlite(providerName) ? sqliteSql : postgresSql, cancellationToken);
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""UPDATE "{tableName}" SET "{columnName}" = "{sourceColumnName}";""",
             cancellationToken);
     }
 
@@ -495,6 +626,101 @@ CREATE TABLE "{taskTable}" (
         await ExecuteNonQueryAsync(
             connection,
             $"""CREATE INDEX IF NOT EXISTS "IX_{taskTable}_Board" ON "{taskTable}" ("ProductId", "SprintId", "Column", "SortOrder");""",
+            cancellationToken);
+    }
+
+    private static async Task EnsureProductExpenseTableAsync(
+        DbConnection connection,
+        string? providerName,
+        string productTable,
+        string expenseTable,
+        CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, providerName, expenseTable, cancellationToken))
+        {
+            var sql = IsSqlite(providerName)
+                ? $"""
+CREATE TABLE "{expenseTable}" (
+    "Id" TEXT NOT NULL CONSTRAINT "PK_{expenseTable}" PRIMARY KEY,
+    "ProductId" TEXT NOT NULL,
+    "Name" TEXT NOT NULL,
+    "Category" TEXT NOT NULL,
+    "Amount" NUMERIC NOT NULL,
+    "Recurrence" TEXT NOT NULL,
+    "Notes" TEXT NULL,
+    "CreatedDate" TEXT NOT NULL,
+    CONSTRAINT "FK_{expenseTable}_{productTable}_ProductId" FOREIGN KEY ("ProductId") REFERENCES "{productTable}" ("Id") ON DELETE CASCADE
+);
+"""
+                : $"""
+CREATE TABLE "{expenseTable}" (
+    "Id" character varying(40) NOT NULL,
+    "ProductId" character varying(40) NOT NULL,
+    "Name" character varying(160) NOT NULL,
+    "Category" character varying(40) NOT NULL,
+    "Amount" numeric(18,2) NOT NULL,
+    "Recurrence" character varying(20) NOT NULL,
+    "Notes" character varying(1000) NULL,
+    "CreatedDate" date NOT NULL,
+    CONSTRAINT "PK_{expenseTable}" PRIMARY KEY ("Id"),
+    CONSTRAINT "FK_{expenseTable}_{productTable}_ProductId" FOREIGN KEY ("ProductId") REFERENCES "{productTable}" ("Id") ON DELETE CASCADE
+);
+""";
+
+            await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+        }
+
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{expenseTable}_ProductId_CreatedDate" ON "{expenseTable}" ("ProductId", "CreatedDate");""",
+            cancellationToken);
+    }
+
+    private static async Task EnsureCompanyCostTableAsync(
+        DbConnection connection,
+        string? providerName,
+        string companyCostTable,
+        CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, providerName, companyCostTable, cancellationToken))
+        {
+            var sql = IsSqlite(providerName)
+                ? $"""
+CREATE TABLE "{companyCostTable}" (
+    "Id" TEXT NOT NULL CONSTRAINT "PK_{companyCostTable}" PRIMARY KEY,
+    "Name" TEXT NOT NULL,
+    "Description" TEXT NOT NULL,
+    "Category" TEXT NOT NULL,
+    "Amount" NUMERIC NOT NULL,
+    "Recurrence" TEXT NOT NULL,
+    "Vendor" TEXT NOT NULL,
+    "StartDate" TEXT NOT NULL,
+    "NextBillingDate" TEXT NULL,
+    "Status" TEXT NOT NULL
+);
+"""
+                : $"""
+CREATE TABLE "{companyCostTable}" (
+    "Id" character varying(40) NOT NULL,
+    "Name" character varying(160) NOT NULL,
+    "Description" character varying(500) NOT NULL,
+    "Category" character varying(40) NOT NULL,
+    "Amount" numeric(18,2) NOT NULL,
+    "Recurrence" character varying(20) NOT NULL,
+    "Vendor" character varying(160) NOT NULL,
+    "StartDate" date NOT NULL,
+    "NextBillingDate" date NULL,
+    "Status" character varying(20) NOT NULL,
+    CONSTRAINT "PK_{companyCostTable}" PRIMARY KEY ("Id")
+);
+""";
+
+            await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+        }
+
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{companyCostTable}_Status_Category" ON "{companyCostTable}" ("Status", "Category");""",
             cancellationToken);
     }
 

@@ -17,6 +17,16 @@ public sealed class ProductKanbanController(IProductsService productsService) : 
         return Ok(response);
     }
 
+    [Authorize(Policy = "BackofficeRead")]
+    [HttpGet("expenses")]
+    public async Task<ActionResult<IReadOnlyCollection<ProductExpenseDto>>> GetExpenses(
+        string productId,
+        CancellationToken cancellationToken)
+    {
+        var response = await productsService.GetExpensesAsync(productId, cancellationToken);
+        return Ok(response);
+    }
+
     [Authorize(Policy = "ProductScopedWrite")]
     [HttpPost("backlog/import")]
     public async Task<ActionResult<ProductBacklogImportResultDto>> ImportBacklog(
@@ -87,6 +97,37 @@ public sealed class ProductKanbanController(IProductsService productsService) : 
     public async Task<IActionResult> DeleteTask(string productId, string taskId, CancellationToken cancellationToken)
     {
         await productsService.DeleteTaskAsync(productId, taskId, cancellationToken);
+        return NoContent();
+    }
+
+    [Authorize(Policy = "ProductScopedWrite")]
+    [HttpPost("expenses")]
+    public async Task<ActionResult<ProductExpenseDto>> CreateExpense(
+        string productId,
+        [FromBody] CreateProductExpenseRequest request,
+        CancellationToken cancellationToken)
+    {
+        var response = await productsService.CreateExpenseAsync(productId, request, cancellationToken);
+        return Ok(response);
+    }
+
+    [Authorize(Policy = "ProductScopedWrite")]
+    [HttpPut("expenses/{expenseId}")]
+    public async Task<ActionResult<ProductExpenseDto>> UpdateExpense(
+        string productId,
+        string expenseId,
+        [FromBody] UpdateProductExpenseRequest request,
+        CancellationToken cancellationToken)
+    {
+        var response = await productsService.UpdateExpenseAsync(productId, expenseId, request, cancellationToken);
+        return Ok(response);
+    }
+
+    [Authorize(Policy = "ProductScopedWrite")]
+    [HttpDelete("expenses/{expenseId}")]
+    public async Task<IActionResult> DeleteExpense(string productId, string expenseId, CancellationToken cancellationToken)
+    {
+        await productsService.DeleteExpenseAsync(productId, expenseId, cancellationToken);
         return NoContent();
     }
 }

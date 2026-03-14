@@ -106,6 +106,8 @@ public static class MyratiServiceHostExtensions
         {
             options.AddPolicy("BackofficeRead", policy =>
                 policy.RequireRole("Super Admin", "Admin", "Vendedor", "Desenvolvedor"));
+            options.AddPolicy("BackofficeCostsRead", policy =>
+                policy.RequireRole("Super Admin", "Admin", "Vendedor"));
             options.AddPolicy("PortalRead", policy =>
                 policy.RequireRole("Cliente"));
             options.AddPolicy("ProductCreate", policy =>

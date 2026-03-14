@@ -32,9 +32,8 @@ public sealed class ProductDraftAndBacklogEndpointsTests(CustomWebApplicationFac
                 "Descoberta",
                 "Em desenvolvimento",
                 "development",
-                "0.1.0",
                 [
-                    new UpsertProductPlanRequest("Descoberta", null, 0m, null, null, null)
+                    new UpsertProductPlanRequest("Descoberta", null, 0m, null, null, null, null)
                 ]));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -43,6 +42,7 @@ public sealed class ProductDraftAndBacklogEndpointsTests(CustomWebApplicationFac
         var createdProduct = await response.Content.ReadFromJsonAsync<ProductDetailDto>();
         Assert.NotNull(createdProduct);
         Assert.Equal("Em desenvolvimento", createdProduct.Status);
+        Assert.Equal("0.0", createdProduct.Version);
         Assert.Null(Assert.Single(createdProduct.Plans).MaxUsers);
     }
 
@@ -72,9 +72,8 @@ public sealed class ProductDraftAndBacklogEndpointsTests(CustomWebApplicationFac
                     "Operações",
                     "Em desenvolvimento",
                     "subscription",
-                    "1.0.0",
                     [
-                        new UpsertProductPlanRequest("Starter", null, 0m, null, null, null)
+                        new UpsertProductPlanRequest("Starter", null, 0m, null, null, null, null)
                     ]),
                 new ImportProductBacklogRequest(
                     false,
@@ -100,6 +99,7 @@ public sealed class ProductDraftAndBacklogEndpointsTests(CustomWebApplicationFac
 
         var createdProduct = await setupResponse.Content.ReadFromJsonAsync<ProductDetailDto>();
         Assert.NotNull(createdProduct);
+        Assert.Equal("0.1", createdProduct.Version);
         Assert.Single(createdProduct.Kanban.Sprints);
         Assert.Single(createdProduct.Kanban.Tasks);
         Assert.Equal(startDateIso, createdProduct.Kanban.Sprints.First().StartDate);
@@ -148,6 +148,7 @@ public sealed class ProductDraftAndBacklogEndpointsTests(CustomWebApplicationFac
 
         var updatedProduct = await productResponse.Content.ReadFromJsonAsync<ProductDetailDto>();
         Assert.NotNull(updatedProduct);
+        Assert.Equal("0.1", updatedProduct.Version);
         Assert.Single(updatedProduct.Kanban.Sprints);
         Assert.Equal(2, updatedProduct.Kanban.Tasks.Count);
         Assert.Equal("Concluída", updatedProduct.Kanban.Sprints.First().Status);

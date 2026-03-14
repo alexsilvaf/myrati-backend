@@ -56,6 +56,16 @@ public sealed class ProductsController(IProductsService productsService) : Contr
     }
 
     [Authorize(Policy = "ProductScopedWrite")]
+    [HttpPost("{productId}/deployments")]
+    public async Task<ActionResult<ProductDetailDto>> RecordProductionDeployment(
+        string productId,
+        CancellationToken cancellationToken)
+    {
+        var response = await productsService.RecordProductionDeploymentAsync(productId, cancellationToken);
+        return Ok(response);
+    }
+
+    [Authorize(Policy = "ProductScopedWrite")]
     [HttpDelete("{productId}")]
     public async Task<IActionResult> DeleteProduct(string productId, CancellationToken cancellationToken)
     {

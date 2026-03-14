@@ -7,7 +7,8 @@ public sealed record ProductPlanDto(
     decimal MonthlyPrice,
     decimal? DevelopmentCost,
     decimal? MaintenanceCost,
-    decimal? RevenueSharePercent);
+    decimal? RevenueSharePercent,
+    decimal? MaintenanceProfitMargin);
 
 public sealed record LicenseDto(
     string Id,
@@ -45,6 +46,16 @@ public sealed record ProductTaskDto(
     IReadOnlyCollection<string> Tags,
     string CreatedDate);
 
+public sealed record ProductExpenseDto(
+    string Id,
+    string ProductId,
+    string Name,
+    string Category,
+    decimal Amount,
+    string Recurrence,
+    string? Notes,
+    string CreatedDate);
+
 public sealed record ProductKanbanDto(
     IReadOnlyCollection<ProductSprintDto> Sprints,
     IReadOnlyCollection<ProductTaskDto> Tasks,
@@ -68,6 +79,7 @@ public sealed record ProductCollaboratorPermissionsDto(
     ProductPermissionSetDto Tasks,
     ProductPermissionSetDto Sprints,
     ProductPermissionSetDto Licenses,
+    ProductPermissionSetDto Plans,
     ProductPermissionSetDto Product);
 
 public sealed record ProductCollaboratorSummaryDto(
@@ -96,7 +108,10 @@ public sealed record ProductSummaryDto(
     int ActiveLicenses,
     decimal MonthlyRevenue,
     string CreatedDate,
+    int ProductionDeploys,
+    int DevSprintsSinceLastDeploy,
     string Version,
+    bool CanViewPlans,
     IReadOnlyCollection<ProductPlanDto> Plans,
     IReadOnlyCollection<ProductCollaboratorSummaryDto> Collaborators);
 
@@ -111,7 +126,10 @@ public sealed record ProductDetailDto(
     int ActiveLicenses,
     decimal MonthlyRevenue,
     string CreatedDate,
+    int ProductionDeploys,
+    int DevSprintsSinceLastDeploy,
     string Version,
+    bool CanViewPlans,
     IReadOnlyCollection<ProductPlanDto> Plans,
     IReadOnlyCollection<ProductCollaboratorDto> Collaborators,
     IReadOnlyCollection<LicenseDto> Licenses,
@@ -123,7 +141,8 @@ public sealed record UpsertProductPlanRequest(
     decimal MonthlyPrice,
     decimal? DevelopmentCost,
     decimal? MaintenanceCost,
-    decimal? RevenueSharePercent);
+    decimal? RevenueSharePercent,
+    decimal? MaintenanceProfitMargin);
 
 public sealed record CreateProductRequest(
     string Name,
@@ -131,7 +150,6 @@ public sealed record CreateProductRequest(
     string Category,
     string Status,
     string SalesStrategy,
-    string Version,
     IReadOnlyCollection<UpsertProductPlanRequest> Plans);
 
 public sealed record ImportProductTaskRequest(
@@ -163,7 +181,6 @@ public sealed record UpdateProductRequest(
     string Category,
     string Status,
     string SalesStrategy,
-    string Version,
     IReadOnlyCollection<UpsertProductPlanRequest> Plans);
 
 public sealed record CreateLicenseRequest(
@@ -214,9 +231,57 @@ public sealed record UpdateProductTaskRequest(
     string Assignee,
     IReadOnlyCollection<string> Tags);
 
+public sealed record CreateProductExpenseRequest(
+    string Name,
+    string Category,
+    decimal Amount,
+    string Recurrence,
+    string? Notes);
+
+public sealed record UpdateProductExpenseRequest(
+    string Name,
+    string Category,
+    decimal Amount,
+    string Recurrence,
+    string? Notes);
+
 public sealed record AddProductCollaboratorRequest(
     string MemberId,
     ProductCollaboratorPermissionsDto Permissions);
 
 public sealed record UpdateProductCollaboratorRequest(
     ProductCollaboratorPermissionsDto Permissions);
+
+public sealed record CompanyCostDto(
+    string Id,
+    string Name,
+    string Description,
+    string Category,
+    decimal Amount,
+    string Recurrence,
+    string Vendor,
+    string StartDate,
+    string? NextBillingDate,
+    string Status);
+
+public sealed record CreateCompanyCostRequest(
+    string Name,
+    string Description,
+    string Category,
+    decimal Amount,
+    string Recurrence,
+    string Vendor,
+    string StartDate,
+    string? NextBillingDate,
+    string Status);
+
+public sealed record UpdateCompanyCostRequest(
+    string Name,
+    string Description,
+    string Category,
+    decimal Amount,
+    string Recurrence,
+    string Vendor,
+    string StartDate,
+    string? NextBillingDate,
+    string Status);

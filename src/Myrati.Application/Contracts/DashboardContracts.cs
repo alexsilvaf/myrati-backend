@@ -26,6 +26,7 @@ public sealed record DashboardResponse(
     int TotalUsersCount,
     int UtilizationRate,
     int ActiveClients,
+    bool CanViewRevenue,
     IReadOnlyCollection<MonthlyRevenueDto> MonthlyRevenue,
     IReadOnlyCollection<RevenueByProductDto> RevenueByProduct,
     IReadOnlyCollection<RecentActivityDto> RecentActivity,

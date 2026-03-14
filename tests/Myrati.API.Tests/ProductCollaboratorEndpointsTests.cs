@@ -31,8 +31,7 @@ public sealed class ProductCollaboratorEndpointsTests(CustomWebApplicationFactor
                 "QA",
                 "Em desenvolvimento",
                 "subscription",
-                "1.0.0",
-                [new UpsertProductPlanRequest("Starter", 10, 199m, null, null, null)]));
+                [new UpsertProductPlanRequest("Starter", 10, 199m, null, null, null, null)]));
         Assert.Equal(HttpStatusCode.Created, createProductResponse.StatusCode);
 
         var createdProduct = await createProductResponse.Content.ReadFromJsonAsync<ProductDetailDto>();
@@ -135,6 +134,7 @@ public sealed class ProductCollaboratorEndpointsTests(CustomWebApplicationFactor
             new ProductPermissionSetDto(true, tasksCreate, tasksEdit, false),
             new ProductPermissionSetDto(true, false, false, false),
             new ProductPermissionSetDto(true, licensesCreate, licensesEdit, false),
+            new ProductPermissionSetDto(true, false, productEdit, false),
             new ProductPermissionSetDto(true, false, productEdit, false));
     }
 }

@@ -32,17 +32,18 @@ public sealed class ProductAndLicenseLifecycleEndpointsTests(CustomWebApplicatio
                 "Operações",
                 "Ativo",
                 "subscription",
-                "1.0.0",
                 [
-                    new UpsertProductPlanRequest("Starter", 5, 149m, null, null, null),
-                    new UpsertProductPlanRequest("Scale", 15, 399m, null, null, null)
+                    new UpsertProductPlanRequest("Starter", 5, 149m, null, null, null, null),
+                    new UpsertProductPlanRequest("Scale", 15, 399m, null, null, null, null)
                 ]));
         Assert.Equal(HttpStatusCode.Created, createProductResponse.StatusCode);
         Assert.Null(createProductResponse.Headers.Location);
 
         var createdProduct = await createProductResponse.Content.ReadFromJsonAsync<ProductDetailDto>();
         Assert.NotNull(createdProduct);
+        Assert.Equal("0.0", createdProduct.Version);
         Assert.Equal(2, createdProduct.Plans.Count);
+        var today = ApplicationTime.LocalToday();
 
         var updateProductResponse = await client.PutAsJsonAsync(
             $"/api/v1/backoffice/products/{createdProduct.Id}",
@@ -52,20 +53,40 @@ public sealed class ProductAndLicenseLifecycleEndpointsTests(CustomWebApplicatio
                 "Financeiro",
                 "Em desenvolvimento",
                 "development",
-                "1.1.0",
                 [
-                    new UpsertProductPlanRequest("Starter", 10, 199m, 12000m, 199m, null),
-                    new UpsertProductPlanRequest("Scale", 30, 599m, 24000m, 599m, null)
+                    new UpsertProductPlanRequest("Starter", 10, 199m, 12000m, 199m, null, 30m),
+                    new UpsertProductPlanRequest("Scale", 30, 599m, 24000m, 599m, null, 35m)
                 ]));
         updateProductResponse.EnsureSuccessStatusCode();
 
         var updatedProduct = await updateProductResponse.Content.ReadFromJsonAsync<ProductDetailDto>();
         Assert.NotNull(updatedProduct);
-        Assert.Equal("1.1.0", updatedProduct.Version);
+        Assert.Equal("0.0", updatedProduct.Version);
         Assert.Equal("Em desenvolvimento", updatedProduct.Status);
         Assert.Equal("development", updatedProduct.SalesStrategy);
 
-        var today = ApplicationTime.LocalToday();
+        var createSprintResponse = await client.PostAsJsonAsync(
+            $"/api/v1/backoffice/products/{createdProduct.Id}/sprints",
+            new CreateProductSprintRequest(
+                "Sprint 1 - Release",
+                today.ToString("yyyy-MM-dd"),
+                today.AddDays(14).ToString("yyyy-MM-dd"),
+                "Ativa"));
+        createSprintResponse.EnsureSuccessStatusCode();
+
+        var productAfterSprintResponse = await client.GetAsync($"/api/v1/backoffice/products/{createdProduct.Id}");
+        productAfterSprintResponse.EnsureSuccessStatusCode();
+        var productAfterSprint = await productAfterSprintResponse.Content.ReadFromJsonAsync<ProductDetailDto>();
+        Assert.NotNull(productAfterSprint);
+        Assert.Equal("0.1", productAfterSprint.Version);
+
+        var deployResponse = await client.PostAsync($"/api/v1/backoffice/products/{createdProduct.Id}/deployments", null);
+        deployResponse.EnsureSuccessStatusCode();
+        var deployedProduct = await deployResponse.Content.ReadFromJsonAsync<ProductDetailDto>();
+        Assert.NotNull(deployedProduct);
+        Assert.Equal(1, deployedProduct.ProductionDeploys);
+        Assert.Equal(0, deployedProduct.DevSprintsSinceLastDeploy);
+        Assert.Equal("1.0", deployedProduct.Version);
         var createLicenseResponse = await client.PostAsJsonAsync(
             $"/api/v1/backoffice/products/{createdProduct.Id}/licenses",
             new CreateLicenseRequest(

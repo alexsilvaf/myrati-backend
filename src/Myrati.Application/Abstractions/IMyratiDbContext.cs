@@ -1,6 +1,7 @@
 using Myrati.Domain.Auditing;
 using Myrati.Domain.Clients;
 using Myrati.Domain.Compliance;
+using Myrati.Domain.Costs;
 using Myrati.Domain.Dashboard;
 using Myrati.Domain.Identity;
 using Myrati.Domain.Notifications;
@@ -22,8 +23,10 @@ public interface IMyratiDbContext
     IQueryable<ProductCollaborator> ProductCollaborators { get; }
     IQueryable<ProductSprint> ProductSprints { get; }
     IQueryable<ProductTask> ProductTasks { get; }
+    IQueryable<ProductExpense> ProductExpenses { get; }
     IQueryable<License> Licenses { get; }
     IQueryable<Client> Clients { get; }
+    IQueryable<CompanyCost> CompanyCosts { get; }
     IQueryable<ConnectedUser> ConnectedUsers { get; }
     IQueryable<CompanySettings> CompanySettings { get; }
     IQueryable<ApiKeyCredential> ApiKeys { get; }
