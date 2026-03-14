@@ -1,5 +1,6 @@
 using Myrati.Application.Abstractions;
 using Microsoft.EntityFrameworkCore;
+using Myrati.Application.Common;
 using Myrati.Application.Contracts;
 
 namespace Myrati.Application.Services;
@@ -102,7 +103,7 @@ public sealed class DashboardService(IMyratiDbContext dbContext) : IDashboardSer
         IReadOnlyDictionary<string, Domain.Products.Product> productsById,
         IReadOnlyCollection<DashboardProductHealthDto> productHealth)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ApplicationTime.LocalToday();
         var alerts = new List<DashboardAlertDto>();
 
         foreach (var license in licenses.Where(x => x.Status == "Ativa"))

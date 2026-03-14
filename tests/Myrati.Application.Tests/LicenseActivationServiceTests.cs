@@ -1,3 +1,4 @@
+using Myrati.Application.Common;
 using Myrati.Application.Common.Exceptions;
 using Myrati.Application.Contracts;
 using Myrati.Application.Services;
@@ -14,7 +15,7 @@ public sealed class LicenseActivationServiceTests
     public async Task ActivateAsync_WithMatchingProductAndLicense_ReturnsActivationPayload()
     {
         await using var scope = await SeededDbContextScope.CreateAsync();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ApplicationTime.LocalToday();
 
         await scope.Context.AddAsync(new License
         {
@@ -46,7 +47,7 @@ public sealed class LicenseActivationServiceTests
     public async Task ActivateAsync_WithLicenseFromAnotherProduct_ThrowsConflictException()
     {
         await using var scope = await SeededDbContextScope.CreateAsync();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ApplicationTime.LocalToday();
 
         await scope.Context.AddAsync(new License
         {

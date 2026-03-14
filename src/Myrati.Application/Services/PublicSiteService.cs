@@ -97,7 +97,7 @@ public sealed class PublicSiteService(
 
         return new SystemStatusResponse(
             overallStatus,
-            metadata?.LastUpdatedDisplay ?? DateTime.Now.ToString("dd MMM yyyy 'as' HH:mm"),
+            metadata?.LastUpdatedDisplay ?? ApplicationTime.FormatLocalNow("dd MMM yyyy 'às' HH:mm"),
             services.Select(x => new PublicServiceStatusDto(x.Id, x.Name, x.Status, x.Uptime, x.ResponseTime)).ToArray(),
             incidents.Select(x => new PublicIncidentDto(x.Id, x.DateDisplay, x.Title, x.Description, x.Resolved)).ToArray(),
             uptimeHistory.Select(x => new PublicUptimeSampleDto(x.Id, x.Day, x.Percentage)).ToArray());

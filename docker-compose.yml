@@ -68,6 +68,7 @@ services:
       Email__Gmail__RefreshToken: ${MYRATI_GMAIL_REFRESH_TOKEN:-}
       Audit__RetentionDays: ${MYRATI_AUDIT_RETENTION_DAYS:-365}
       Compliance__DataSubjectRequestDueDays: ${MYRATI_COMPLIANCE_DATA_SUBJECT_REQUEST_DUE_DAYS:-15}
+      MYRATI_APP_TIMEZONE: ${MYRATI_APP_TIMEZONE:-America/Sao_Paulo}
       DataProtection__ApplicationName: ${MYRATI_DATAPROTECTION_APPLICATION_NAME:-Myrati}
       DataProtection__KeysPath: ${MYRATI_DATAPROTECTION_KEYS_PATH:-/var/lib/myrati/dataprotection-keys}
       DataProtection__CertificatePath: ${MYRATI_DATAPROTECTION_CERTIFICATE_PATH:-}
@@ -101,6 +102,7 @@ services:
       Email__Gmail__ClientSecret: ${MYRATI_GMAIL_CLIENT_SECRET:-}
       Email__Gmail__RefreshToken: ${MYRATI_GMAIL_REFRESH_TOKEN:-}
       Audit__RetentionDays: ${MYRATI_AUDIT_RETENTION_DAYS:-365}
+      MYRATI_APP_TIMEZONE: ${MYRATI_APP_TIMEZONE:-America/Sao_Paulo}
       DataProtection__ApplicationName: ${MYRATI_DATAPROTECTION_APPLICATION_NAME:-Myrati}
       DataProtection__KeysPath: ${MYRATI_DATAPROTECTION_KEYS_PATH:-/var/lib/myrati/dataprotection-keys}
       DataProtection__CertificatePath: ${MYRATI_DATAPROTECTION_CERTIFICATE_PATH:-}
@@ -136,6 +138,7 @@ services:
       Email__Gmail__ClientSecret: ${MYRATI_GMAIL_CLIENT_SECRET:-}
       Email__Gmail__RefreshToken: ${MYRATI_GMAIL_REFRESH_TOKEN:-}
       Audit__RetentionDays: ${MYRATI_AUDIT_RETENTION_DAYS:-365}
+      MYRATI_APP_TIMEZONE: ${MYRATI_APP_TIMEZONE:-America/Sao_Paulo}
       SystemStatus__Monitor__Enabled: ${MYRATI_STATUS_MONITOR_ENABLED:-true}
       SystemStatus__Monitor__IntervalSeconds: ${MYRATI_STATUS_MONITOR_INTERVAL_SECONDS:-15}
       SystemStatus__Monitor__RequestTimeoutSeconds: ${MYRATI_STATUS_MONITOR_TIMEOUT_SECONDS:-5}
@@ -187,6 +190,7 @@ services:
       Jwt__Audience: ${MYRATI_JWT_AUDIENCE:-Myrati.Backoffice}
       Jwt__Key: ${MYRATI_JWT_KEY:-CHANGE_THIS_FOR_A_LONG_RANDOM_SECRET_KEY_32+}
       Audit__RetentionDays: ${MYRATI_AUDIT_RETENTION_DAYS:-365}
+      MYRATI_APP_TIMEZONE: ${MYRATI_APP_TIMEZONE:-America/Sao_Paulo}
       DataProtection__ApplicationName: ${MYRATI_DATAPROTECTION_APPLICATION_NAME:-Myrati}
       DataProtection__KeysPath: ${MYRATI_DATAPROTECTION_KEYS_PATH:-/var/lib/myrati/dataprotection-keys}
       DataProtection__CertificatePath: ${MYRATI_DATAPROTECTION_CERTIFICATE_PATH:-}

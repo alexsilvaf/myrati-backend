@@ -1,12 +1,12 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Myrati.Application.Abstractions;
+using Myrati.Application.Common;
 using Myrati.Domain.Public;
 
 namespace Myrati.Application.Services;
@@ -73,8 +73,7 @@ public sealed class SystemStatusMonitorRunner(
             await dbContext.AddAsync(metadata, cancellationToken);
         }
 
-        var saoPauloNow = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, ResolveSaoPauloTimeZone());
-        metadata.LastUpdatedDisplay = saoPauloNow.ToString("dd MMM yyyy 'às' HH:mm", new CultureInfo("pt-BR"));
+        metadata.LastUpdatedDisplay = ApplicationTime.FormatLocalNow("dd MMM yyyy 'às' HH:mm");
 
         await UpsertDailyUptimeSampleAsync(dbContext, results, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -148,9 +147,9 @@ public sealed class SystemStatusMonitorRunner(
         IReadOnlyCollection<SystemStatusCheckResult> results,
         CancellationToken cancellationToken)
     {
-        var today = DateTimeOffset.UtcNow.Date;
+        var today = ApplicationTime.LocalToday();
         var todayId = $"UPT-{today:yyyyMMdd}";
-        var todayLabel = today.ToString("dd MMM", new CultureInfo("pt-BR"));
+        var todayLabel = today.ToString("dd MMM", ApplicationTime.PortugueseBrazil);
         var aggregatePercentage = results.Count == 0
             ? 0m
             : Math.Round(results.Count(result => result.Status == "operational") * 100m / results.Count, 1);
@@ -171,7 +170,7 @@ public sealed class SystemStatusMonitorRunner(
         sample.Percentage = aggregatePercentage;
 
         var retainedSamples = samples
-            .Where(x => x.Id != todayId)
+            .Where(x => x.Id != todayId && string.CompareOrdinal(x.Id, todayId) <= 0)
             .OrderBy(x => x.Id, StringComparer.Ordinal)
             .TakeLast(13)
             .ToList();
@@ -192,21 +191,6 @@ public sealed class SystemStatusMonitorRunner(
         }
     }
 
-    private static TimeZoneInfo ResolveSaoPauloTimeZone()
-    {
-        foreach (var candidate in new[] { "America/Sao_Paulo", "E. South America Standard Time" })
-        {
-            try
-            {
-                return TimeZoneInfo.FindSystemTimeZoneById(candidate);
-            }
-            catch (TimeZoneNotFoundException)
-            {
-            }
-        }
-
-        return TimeZoneInfo.Utc;
-    }
 }
 
 public sealed class SystemStatusMonitorBackgroundService(

@@ -162,7 +162,7 @@ public sealed class ProductsService(
             Status = request.Status,
             SalesStrategy = request.SalesStrategy,
             Version = request.Version.Trim(),
-            CreatedDate = DateOnly.FromDateTime(DateTime.UtcNow)
+            CreatedDate = ApplicationTime.LocalToday()
         };
 
         await dbContext.AddAsync(product, cancellationToken);
@@ -530,7 +530,7 @@ public sealed class ProductsService(
             Priority = request.Priority,
             Assignee = (request.Assignee ?? string.Empty).Trim(),
             TagsSerialized = SerializeTags(request.Tags),
-            CreatedDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            CreatedDate = ApplicationTime.LocalToday(),
             SortOrder = await GetNextTaskSortOrderAsync(productId, request.SprintId, request.Column, cancellationToken)
         };
 
@@ -622,7 +622,7 @@ public sealed class ProductsService(
         {
             ProductId = productId,
             MemberId = member.Id,
-            AddedDate = DateOnly.FromDateTime(DateTime.UtcNow)
+            AddedDate = ApplicationTime.LocalToday()
         };
         ApplyPermissions(collaborator, request.Permissions);
 
@@ -701,7 +701,7 @@ public sealed class ProductsService(
         {
             ProductId = productId,
             MemberId = currentUserId,
-            AddedDate = DateOnly.FromDateTime(DateTime.UtcNow)
+            AddedDate = ApplicationTime.LocalToday()
         };
         ApplyPermissions(collaborator, CreateFullAccessPermissions());
 
@@ -877,7 +877,7 @@ public sealed class ProductsService(
 
     private static string DetermineLicenseStatus(DateOnly startDate, DateOnly expiryDate)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ApplicationTime.LocalToday();
         if (startDate > today)
         {
             return "Pendente";

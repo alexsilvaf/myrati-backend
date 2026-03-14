@@ -87,7 +87,7 @@ public sealed class SettingsService(
             Prefix = prefix,
             Secret = secret,
             Active = true,
-            CreatedAt = DateOnly.FromDateTime(DateTime.UtcNow)
+            CreatedAt = ApplicationTime.LocalToday()
         };
 
         await dbContext.AddAsync(apiKey, cancellationToken);

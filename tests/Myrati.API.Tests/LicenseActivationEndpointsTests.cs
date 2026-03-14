@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Myrati.Application.Common;
 using Myrati.Application.Contracts;
 using Xunit;
 
@@ -67,7 +68,7 @@ public sealed class LicenseActivationEndpointsTests(CustomWebApplicationFactory 
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ApplicationTime.LocalToday();
         var createResponse = await client.PostAsJsonAsync(
             $"/api/v1/backoffice/products/{productId}/licenses",
             new CreateLicenseRequest(

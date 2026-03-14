@@ -157,7 +157,7 @@ public sealed class ProfileService(
             Id = activityId,
             AdminUserId = adminUserId,
             Action = action,
-            DateDisplay = DateTime.Now.ToString("dd/MM/yyyy HH:mm")
+            DateDisplay = ApplicationTime.FormatLocalNow("dd/MM/yyyy HH:mm")
         }, cancellationToken);
     }
 

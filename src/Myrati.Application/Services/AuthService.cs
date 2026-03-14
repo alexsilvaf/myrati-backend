@@ -94,7 +94,7 @@ public sealed class AuthService(
                 await dbContext.ProfileActivities.Select(x => x.Id).ToListAsync(cancellationToken)),
             AdminUserId = user.Id,
             Action = "Senha definida",
-            DateDisplay = DateTime.Now.ToString("dd/MM/yyyy HH:mm")
+            DateDisplay = ApplicationTime.FormatLocalNow("dd/MM/yyyy HH:mm")
         }, cancellationToken);
 
         await dbContext.SaveChangesAsync(cancellationToken);

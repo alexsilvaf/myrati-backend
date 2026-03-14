@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Myrati.API.Tests.Support;
 using Myrati.Application.Abstractions;
+using Myrati.Application.Common;
 using Myrati.Application.Contracts;
 using Myrati.Domain.Clients;
 using Myrati.Domain.Identity;
@@ -40,7 +41,7 @@ public sealed class PortalEndpointsTests(CustomWebApplicationFactory factory)
                     Document = $"98.{numericSuffix[..3]}.{numericSuffix[3..6]}/0001-{numericSuffix[6..8]}",
                     DocumentType = "CNPJ",
                     Company = $"Portal Company {suffix}",
-                    JoinedDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                    JoinedDate = ApplicationTime.LocalToday(),
                     Status = "Ativo"
                 },
                 new License

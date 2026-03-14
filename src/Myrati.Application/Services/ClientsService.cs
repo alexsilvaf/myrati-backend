@@ -74,7 +74,7 @@ public sealed class ClientsService(
             DocumentType = request.DocumentType,
             Company = request.Company.Trim(),
             Status = request.Status,
-            JoinedDate = DateOnly.FromDateTime(DateTime.UtcNow)
+            JoinedDate = ApplicationTime.LocalToday()
         };
 
         var portalAccess = await CreateClientPortalAccessAsync(client, cancellationToken);

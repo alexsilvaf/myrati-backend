@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
 if [ "$#" -lt 1 ]; then
   echo "Usage: restore-postgres-backup.sh <backup-file>" >&2

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Myrati.API.Tests.Support;
+using Myrati.Application.Common;
 using Myrati.Application.Contracts;
 using Xunit;
 
@@ -63,7 +64,7 @@ public sealed class ProductAndLicenseLifecycleEndpointsTests(CustomWebApplicatio
         Assert.Equal("Em desenvolvimento", updatedProduct.Status);
         Assert.Equal("development", updatedProduct.SalesStrategy);
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ApplicationTime.LocalToday();
         var createLicenseResponse = await client.PostAsJsonAsync(
             $"/api/v1/backoffice/products/{createdProduct.Id}/licenses",
             new CreateLicenseRequest(

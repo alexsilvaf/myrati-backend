@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using MimeKit;
 using MimeKit.Text;
 using Myrati.Application.Abstractions;
+using Myrati.Application.Common;
 using SaslMechanismOAuth2 = MailKit.Security.SaslMechanismOAuth2;
 
 namespace Myrati.Infrastructure.Email;
@@ -78,7 +79,7 @@ internal sealed class GmailContactLeadEmailSender(
 
     private static string BuildHtmlBody(ContactLeadEmailMessage lead)
     {
-        var createdAt = lead.CreatedAt.UtcDateTime.ToString("dd/MM/yyyy HH:mm 'UTC'");
+        var createdAt = $"{ApplicationTime.FormatLocal(lead.CreatedAt, "dd/MM/yyyy HH:mm")} (horário de Brasília)";
         var leadId = Encode(lead.LeadId);
         var name = Encode(lead.Name);
         var email = Encode(lead.Email);

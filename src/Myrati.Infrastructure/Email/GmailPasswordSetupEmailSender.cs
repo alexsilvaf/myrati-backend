@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using MimeKit;
 using MimeKit.Text;
 using Myrati.Application.Abstractions;
+using Myrati.Application.Common;
 using SaslMechanismOAuth2 = MailKit.Security.SaslMechanismOAuth2;
 
 namespace Myrati.Infrastructure.Email;
@@ -77,7 +78,7 @@ internal sealed class GmailPasswordSetupEmailSender(
 
     private static string BuildHtmlBody(string recipientName, string setupUrl, DateTimeOffset expiresAt)
     {
-        var expirationText = expiresAt.UtcDateTime.ToString("dd/MM/yyyy HH:mm 'UTC'");
+        var expirationText = $"{ApplicationTime.FormatLocal(expiresAt, "dd/MM/yyyy HH:mm")} (horário de Brasília)";
 
         return $$"""
 <!doctype html>

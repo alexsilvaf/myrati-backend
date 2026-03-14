@@ -89,7 +89,7 @@ public sealed class LicenseActivationService(
 
     private static string DetermineStatus(DateOnly startDate, DateOnly expiryDate)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ApplicationTime.LocalToday();
         if (startDate > today)
         {
             return "Pendente";

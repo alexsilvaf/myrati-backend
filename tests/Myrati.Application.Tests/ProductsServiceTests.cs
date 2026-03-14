@@ -1,3 +1,4 @@
+using Myrati.Application.Common;
 using Myrati.Application.Common.Exceptions;
 using Myrati.Application.Contracts;
 using Myrati.Application.Services;
@@ -52,7 +53,7 @@ public sealed class ProductsServiceTests
             Category = "Teste",
             Status = "Em desenvolvimento",
             SalesStrategy = "subscription",
-            CreatedDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            CreatedDate = ApplicationTime.LocalToday(),
             Version = "1.0.0"
         });
 
