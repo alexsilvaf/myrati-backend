@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Myrati.Application.Abstractions;
+using Myrati.Domain.Auditing;
 using Myrati.Domain.Clients;
+using Myrati.Domain.Compliance;
 using Myrati.Domain.Dashboard;
 using Myrati.Domain.Identity;
 using Myrati.Domain.Notifications;
@@ -13,6 +15,7 @@ namespace Myrati.Infrastructure.Persistence;
 public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     : DbContext(options), IMyratiDbContext
 {
+    public DbSet<AuditLog> AuditLogsSet => Set<AuditLog>();
     public DbSet<AdminUser> AdminUsersSet => Set<AdminUser>();
     public DbSet<PasswordSetupToken> PasswordSetupTokensSet => Set<PasswordSetupToken>();
     public DbSet<ProfileSession> ProfileSessionsSet => Set<ProfileSession>();
@@ -35,7 +38,11 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     public DbSet<UptimeSample> UptimeSamplesSet => Set<UptimeSample>();
     public DbSet<ContactLead> ContactLeadsSet => Set<ContactLead>();
     public DbSet<AdminNotification> AdminNotificationsSet => Set<AdminNotification>();
+    public DbSet<DataSubjectRequest> DataSubjectRequestsSet => Set<DataSubjectRequest>();
+    public DbSet<ProcessingActivityRecord> ProcessingActivityRecordsSet => Set<ProcessingActivityRecord>();
+    public DbSet<SecurityIncidentRecord> SecurityIncidentRecordsSet => Set<SecurityIncidentRecord>();
 
+    IQueryable<AuditLog> IMyratiDbContext.AuditLogs => AuditLogsSet;
     IQueryable<AdminUser> IMyratiDbContext.AdminUsers => AdminUsersSet;
     IQueryable<PasswordSetupToken> IMyratiDbContext.PasswordSetupTokens => PasswordSetupTokensSet;
     IQueryable<ProfileSession> IMyratiDbContext.ProfileSessions => ProfileSessionsSet;
@@ -58,6 +65,9 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     IQueryable<UptimeSample> IMyratiDbContext.UptimeSamples => UptimeSamplesSet;
     IQueryable<ContactLead> IMyratiDbContext.ContactLeads => ContactLeadsSet;
     IQueryable<AdminNotification> IMyratiDbContext.AdminNotifications => AdminNotificationsSet;
+    IQueryable<DataSubjectRequest> IMyratiDbContext.DataSubjectRequests => DataSubjectRequestsSet;
+    IQueryable<ProcessingActivityRecord> IMyratiDbContext.ProcessingActivityRecords => ProcessingActivityRecordsSet;
+    IQueryable<SecurityIncidentRecord> IMyratiDbContext.SecurityIncidentRecords => SecurityIncidentRecordsSet;
 
     Task IMyratiDbContext.AddAsync<T>(T entity, CancellationToken cancellationToken) =>
         Set<T>().AddAsync(entity, cancellationToken).AsTask();
@@ -68,6 +78,28 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AuditLog>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.ServiceName).HasMaxLength(120);
+            builder.Property(x => x.EventType).HasMaxLength(200);
+            builder.Property(x => x.HttpMethod).HasMaxLength(12);
+            builder.Property(x => x.Path).HasMaxLength(240);
+            builder.Property(x => x.ResourceType).HasMaxLength(80);
+            builder.Property(x => x.ResourceId).HasMaxLength(80);
+            builder.Property(x => x.Outcome).HasMaxLength(20);
+            builder.Property(x => x.ActorUserId).HasMaxLength(40);
+            builder.Property(x => x.ActorEmail).HasMaxLength(160);
+            builder.Property(x => x.ActorRole).HasMaxLength(40);
+            builder.Property(x => x.IpAddress).HasMaxLength(64);
+            builder.Property(x => x.UserAgent).HasMaxLength(512);
+            builder.Property(x => x.TraceIdentifier).HasMaxLength(120);
+            builder.HasIndex(x => x.OccurredAtUtc);
+            builder.HasIndex(x => new { x.ActorEmail, x.OccurredAtUtc });
+            builder.HasIndex(x => new { x.EventType, x.OccurredAtUtc });
+        });
+
         modelBuilder.Entity<AdminUser>(builder =>
         {
             builder.HasKey(x => x.Id);
@@ -352,6 +384,58 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
                 .OnDelete(DeleteBehavior.Cascade);
             builder.HasIndex(x => new { x.RecipientAdminUserId, x.CreatedAt });
             builder.HasIndex(x => new { x.RecipientAdminUserId, x.ReadAt });
+        });
+
+        modelBuilder.Entity<DataSubjectRequest>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.SubjectName).HasMaxLength(160);
+            builder.Property(x => x.SubjectEmail).HasMaxLength(160);
+            builder.Property(x => x.SubjectDocument).HasMaxLength(40);
+            builder.Property(x => x.RequestType).HasMaxLength(40);
+            builder.Property(x => x.Channel).HasMaxLength(40);
+            builder.Property(x => x.Status).HasMaxLength(40);
+            builder.Property(x => x.Details).HasMaxLength(3000);
+            builder.Property(x => x.ResolutionSummary).HasMaxLength(3000);
+            builder.Property(x => x.AssignedAdminUserId).HasMaxLength(40);
+            builder.HasIndex(x => x.RequestedAtUtc);
+            builder.HasIndex(x => new { x.Status, x.DueAtUtc });
+        });
+
+        modelBuilder.Entity<ProcessingActivityRecord>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.Name).HasMaxLength(160);
+            builder.Property(x => x.SystemName).HasMaxLength(120);
+            builder.Property(x => x.Purpose).HasMaxLength(2000);
+            builder.Property(x => x.LegalBasis).HasMaxLength(120);
+            builder.Property(x => x.DataSubjectCategories).HasMaxLength(2000);
+            builder.Property(x => x.PersonalDataCategories).HasMaxLength(2000);
+            builder.Property(x => x.SharedWith).HasMaxLength(2000);
+            builder.Property(x => x.RetentionPolicy).HasMaxLength(1000);
+            builder.Property(x => x.SecurityMeasures).HasMaxLength(2000);
+            builder.Property(x => x.OwnerArea).HasMaxLength(120);
+            builder.Property(x => x.Status).HasMaxLength(40);
+            builder.HasIndex(x => x.Status);
+            builder.HasIndex(x => x.ReviewDueAtUtc);
+        });
+
+        modelBuilder.Entity<SecurityIncidentRecord>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.Title).HasMaxLength(200);
+            builder.Property(x => x.Description).HasMaxLength(3000);
+            builder.Property(x => x.Severity).HasMaxLength(20);
+            builder.Property(x => x.Status).HasMaxLength(40);
+            builder.Property(x => x.AffectedDataSummary).HasMaxLength(2000);
+            builder.Property(x => x.ImpactSummary).HasMaxLength(2000);
+            builder.Property(x => x.MitigationSummary).HasMaxLength(2000);
+            builder.Property(x => x.AssignedAdminUserId).HasMaxLength(40);
+            builder.HasIndex(x => x.DetectedAtUtc);
+            builder.HasIndex(x => new { x.Status, x.ContainsPersonalData });
         });
 
         base.OnModelCreating(modelBuilder);

@@ -9,7 +9,9 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
         services.AddValidatorsFromAssembly(typeof(ServiceCollectionExtensions).Assembly);
+        services.AddScoped<IAuditLogsService, AuditLogsService>();
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IComplianceService, ComplianceService>();
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IProductsService, ProductsService>();
         services.AddScoped<IClientsService, ClientsService>();

@@ -40,7 +40,8 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
             {
                 ["ConnectionStrings:MyratiDb"] = $"Data Source={_databasePath}",
                 ["Jwt:Key"] = "TEST_SECRET_KEY_12345678901234567890",
-                ["Seeding:IncludeDemoData"] = "true"
+                ["Seeding:IncludeDemoData"] = "true",
+                ["SystemStatus:Monitor:Enabled"] = "false"
             });
         });
 

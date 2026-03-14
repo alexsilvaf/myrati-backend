@@ -2,6 +2,8 @@ using System.Data;
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Myrati.Domain.Auditing;
+using Myrati.Domain.Compliance;
 using Myrati.Domain.Dashboard;
 using Myrati.Domain.Identity;
 using Myrati.Domain.Notifications;
@@ -24,6 +26,7 @@ internal static class DatabaseSchemaCompatibilityUpgrader
         try
         {
             var productTable = GetTableName(context, typeof(Product));
+            var auditLogTable = GetTableName(context, typeof(AuditLog));
             var adminUserTable = GetTableName(context, typeof(AdminUser));
             var passwordSetupTokenTable = GetTableName(context, typeof(PasswordSetupToken));
             var productPlanTable = GetTableName(context, typeof(ProductPlan));
@@ -33,6 +36,9 @@ internal static class DatabaseSchemaCompatibilityUpgrader
             var taskTable = GetTableName(context, typeof(ProductTask));
             var adminNotificationTable = GetTableName(context, typeof(AdminNotification));
             var activityFeedTable = GetTableName(context, typeof(ActivityFeedItem));
+            var dataSubjectRequestTable = GetTableName(context, typeof(DataSubjectRequest));
+            var processingActivityTable = GetTableName(context, typeof(ProcessingActivityRecord));
+            var securityIncidentTable = GetTableName(context, typeof(SecurityIncidentRecord));
 
             await EnsureColumnAsync(
                 connection,
@@ -85,6 +91,11 @@ internal static class DatabaseSchemaCompatibilityUpgrader
                 $"""ALTER TABLE "{licenseTable}" ADD COLUMN "RevenueSharePercent" numeric(5,2) NULL;""",
                 cancellationToken);
 
+            await EnsureAuditLogTableAsync(
+                connection,
+                context.Database.ProviderName,
+                auditLogTable,
+                cancellationToken);
             await EnsureProductCollaboratorTableAsync(
                 connection,
                 context.Database.ProviderName,
@@ -105,6 +116,21 @@ internal static class DatabaseSchemaCompatibilityUpgrader
                 context.Database.ProviderName,
                 adminUserTable,
                 adminNotificationTable,
+                cancellationToken);
+            await EnsureDataSubjectRequestTableAsync(
+                connection,
+                context.Database.ProviderName,
+                dataSubjectRequestTable,
+                cancellationToken);
+            await EnsureProcessingActivityTableAsync(
+                connection,
+                context.Database.ProviderName,
+                processingActivityTable,
+                cancellationToken);
+            await EnsureSecurityIncidentTableAsync(
+                connection,
+                context.Database.ProviderName,
+                securityIncidentTable,
                 cancellationToken);
             await RemoveDeprecatedNotificationsAsync(
                 connection,
@@ -223,6 +249,74 @@ CREATE TABLE "{collaboratorTable}" (
         await ExecuteNonQueryAsync(
             connection,
             $"""CREATE INDEX IF NOT EXISTS "IX_{collaboratorTable}_MemberId" ON "{collaboratorTable}" ("MemberId");""",
+            cancellationToken);
+    }
+
+    private static async Task EnsureAuditLogTableAsync(
+        DbConnection connection,
+        string? providerName,
+        string auditLogTable,
+        CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, providerName, auditLogTable, cancellationToken))
+        {
+            var sql = IsSqlite(providerName)
+                ? $"""
+CREATE TABLE "{auditLogTable}" (
+    "Id" TEXT NOT NULL CONSTRAINT "PK_{auditLogTable}" PRIMARY KEY,
+    "OccurredAtUtc" TEXT NOT NULL,
+    "ServiceName" TEXT NOT NULL,
+    "EventType" TEXT NOT NULL,
+    "HttpMethod" TEXT NOT NULL,
+    "Path" TEXT NOT NULL,
+    "ResourceType" TEXT NULL,
+    "ResourceId" TEXT NULL,
+    "StatusCode" INTEGER NOT NULL,
+    "Outcome" TEXT NOT NULL,
+    "ActorUserId" TEXT NULL,
+    "ActorEmail" TEXT NULL,
+    "ActorRole" TEXT NULL,
+    "IpAddress" TEXT NULL,
+    "UserAgent" TEXT NULL,
+    "TraceIdentifier" TEXT NOT NULL
+);
+"""
+                : $"""
+CREATE TABLE "{auditLogTable}" (
+    "Id" character varying(40) NOT NULL,
+    "OccurredAtUtc" timestamp with time zone NOT NULL,
+    "ServiceName" character varying(120) NOT NULL,
+    "EventType" character varying(200) NOT NULL,
+    "HttpMethod" character varying(12) NOT NULL,
+    "Path" character varying(240) NOT NULL,
+    "ResourceType" character varying(80) NULL,
+    "ResourceId" character varying(80) NULL,
+    "StatusCode" integer NOT NULL,
+    "Outcome" character varying(20) NOT NULL,
+    "ActorUserId" character varying(40) NULL,
+    "ActorEmail" character varying(160) NULL,
+    "ActorRole" character varying(40) NULL,
+    "IpAddress" character varying(64) NULL,
+    "UserAgent" character varying(512) NULL,
+    "TraceIdentifier" character varying(120) NOT NULL,
+    CONSTRAINT "PK_{auditLogTable}" PRIMARY KEY ("Id")
+);
+""";
+
+            await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+        }
+
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{auditLogTable}_OccurredAtUtc" ON "{auditLogTable}" ("OccurredAtUtc");""",
+            cancellationToken);
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{auditLogTable}_ActorEmail_OccurredAtUtc" ON "{auditLogTable}" ("ActorEmail", "OccurredAtUtc");""",
+            cancellationToken);
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{auditLogTable}_EventType_OccurredAtUtc" ON "{auditLogTable}" ("EventType", "OccurredAtUtc");""",
             cancellationToken);
     }
 
@@ -422,6 +516,204 @@ CREATE TABLE "{adminNotificationTable}" (
         await ExecuteNonQueryAsync(
             connection,
             $"""CREATE INDEX IF NOT EXISTS "IX_{adminNotificationTable}_RecipientAdminUserId_ReadAt" ON "{adminNotificationTable}" ("RecipientAdminUserId", "ReadAt");""",
+            cancellationToken);
+    }
+
+    private static async Task EnsureDataSubjectRequestTableAsync(
+        DbConnection connection,
+        string? providerName,
+        string dataSubjectRequestTable,
+        CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, providerName, dataSubjectRequestTable, cancellationToken))
+        {
+            var sql = IsSqlite(providerName)
+                ? $"""
+CREATE TABLE "{dataSubjectRequestTable}" (
+    "Id" TEXT NOT NULL CONSTRAINT "PK_{dataSubjectRequestTable}" PRIMARY KEY,
+    "SubjectName" TEXT NOT NULL,
+    "SubjectEmail" TEXT NOT NULL,
+    "SubjectDocument" TEXT NOT NULL,
+    "RequestType" TEXT NOT NULL,
+    "Channel" TEXT NOT NULL,
+    "Status" TEXT NOT NULL,
+    "Details" TEXT NOT NULL,
+    "ResolutionSummary" TEXT NULL,
+    "IdentityVerified" INTEGER NOT NULL,
+    "AssignedAdminUserId" TEXT NULL,
+    "RequestedAtUtc" TEXT NOT NULL,
+    "DueAtUtc" TEXT NOT NULL,
+    "AcknowledgedAtUtc" TEXT NULL,
+    "CompletedAtUtc" TEXT NULL,
+    "UpdatedAtUtc" TEXT NOT NULL
+);
+"""
+                : $"""
+CREATE TABLE "{dataSubjectRequestTable}" (
+    "Id" character varying(40) NOT NULL,
+    "SubjectName" character varying(160) NOT NULL,
+    "SubjectEmail" character varying(160) NOT NULL,
+    "SubjectDocument" character varying(40) NOT NULL,
+    "RequestType" character varying(40) NOT NULL,
+    "Channel" character varying(40) NOT NULL,
+    "Status" character varying(40) NOT NULL,
+    "Details" character varying(3000) NOT NULL,
+    "ResolutionSummary" character varying(3000) NULL,
+    "IdentityVerified" boolean NOT NULL,
+    "AssignedAdminUserId" character varying(40) NULL,
+    "RequestedAtUtc" timestamp with time zone NOT NULL,
+    "DueAtUtc" timestamp with time zone NOT NULL,
+    "AcknowledgedAtUtc" timestamp with time zone NULL,
+    "CompletedAtUtc" timestamp with time zone NULL,
+    "UpdatedAtUtc" timestamp with time zone NOT NULL,
+    CONSTRAINT "PK_{dataSubjectRequestTable}" PRIMARY KEY ("Id")
+);
+""";
+
+            await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+        }
+
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{dataSubjectRequestTable}_RequestedAtUtc" ON "{dataSubjectRequestTable}" ("RequestedAtUtc");""",
+            cancellationToken);
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{dataSubjectRequestTable}_Status_DueAtUtc" ON "{dataSubjectRequestTable}" ("Status", "DueAtUtc");""",
+            cancellationToken);
+    }
+
+    private static async Task EnsureProcessingActivityTableAsync(
+        DbConnection connection,
+        string? providerName,
+        string processingActivityTable,
+        CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, providerName, processingActivityTable, cancellationToken))
+        {
+            var sql = IsSqlite(providerName)
+                ? $"""
+CREATE TABLE "{processingActivityTable}" (
+    "Id" TEXT NOT NULL CONSTRAINT "PK_{processingActivityTable}" PRIMARY KEY,
+    "Name" TEXT NOT NULL,
+    "SystemName" TEXT NOT NULL,
+    "Purpose" TEXT NOT NULL,
+    "LegalBasis" TEXT NOT NULL,
+    "DataSubjectCategories" TEXT NOT NULL,
+    "PersonalDataCategories" TEXT NOT NULL,
+    "SharedWith" TEXT NOT NULL,
+    "RetentionPolicy" TEXT NOT NULL,
+    "SecurityMeasures" TEXT NOT NULL,
+    "OwnerArea" TEXT NOT NULL,
+    "InternationalTransfer" INTEGER NOT NULL,
+    "Status" TEXT NOT NULL,
+    "CreatedAtUtc" TEXT NOT NULL,
+    "UpdatedAtUtc" TEXT NOT NULL,
+    "ReviewDueAtUtc" TEXT NULL
+);
+"""
+                : $"""
+CREATE TABLE "{processingActivityTable}" (
+    "Id" character varying(40) NOT NULL,
+    "Name" character varying(160) NOT NULL,
+    "SystemName" character varying(120) NOT NULL,
+    "Purpose" character varying(2000) NOT NULL,
+    "LegalBasis" character varying(120) NOT NULL,
+    "DataSubjectCategories" character varying(2000) NOT NULL,
+    "PersonalDataCategories" character varying(2000) NOT NULL,
+    "SharedWith" character varying(2000) NOT NULL,
+    "RetentionPolicy" character varying(1000) NOT NULL,
+    "SecurityMeasures" character varying(2000) NOT NULL,
+    "OwnerArea" character varying(120) NOT NULL,
+    "InternationalTransfer" boolean NOT NULL,
+    "Status" character varying(40) NOT NULL,
+    "CreatedAtUtc" timestamp with time zone NOT NULL,
+    "UpdatedAtUtc" timestamp with time zone NOT NULL,
+    "ReviewDueAtUtc" timestamp with time zone NULL,
+    CONSTRAINT "PK_{processingActivityTable}" PRIMARY KEY ("Id")
+);
+""";
+
+            await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+        }
+
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{processingActivityTable}_Status" ON "{processingActivityTable}" ("Status");""",
+            cancellationToken);
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{processingActivityTable}_ReviewDueAtUtc" ON "{processingActivityTable}" ("ReviewDueAtUtc");""",
+            cancellationToken);
+    }
+
+    private static async Task EnsureSecurityIncidentTableAsync(
+        DbConnection connection,
+        string? providerName,
+        string securityIncidentTable,
+        CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, providerName, securityIncidentTable, cancellationToken))
+        {
+            var sql = IsSqlite(providerName)
+                ? $"""
+CREATE TABLE "{securityIncidentTable}" (
+    "Id" TEXT NOT NULL CONSTRAINT "PK_{securityIncidentTable}" PRIMARY KEY,
+    "Title" TEXT NOT NULL,
+    "Description" TEXT NOT NULL,
+    "Severity" TEXT NOT NULL,
+    "Status" TEXT NOT NULL,
+    "ContainsPersonalData" INTEGER NOT NULL,
+    "AffectedDataSummary" TEXT NOT NULL,
+    "ImpactSummary" TEXT NOT NULL,
+    "MitigationSummary" TEXT NOT NULL,
+    "NotifyAnpd" INTEGER NOT NULL,
+    "NotifyDataSubjects" INTEGER NOT NULL,
+    "AssignedAdminUserId" TEXT NULL,
+    "DetectedAtUtc" TEXT NOT NULL,
+    "OccurredAtUtc" TEXT NULL,
+    "ContainedAtUtc" TEXT NULL,
+    "ReportedToAnpdAtUtc" TEXT NULL,
+    "ReportedToDataSubjectsAtUtc" TEXT NULL,
+    "CreatedAtUtc" TEXT NOT NULL,
+    "UpdatedAtUtc" TEXT NOT NULL
+);
+"""
+                : $"""
+CREATE TABLE "{securityIncidentTable}" (
+    "Id" character varying(40) NOT NULL,
+    "Title" character varying(200) NOT NULL,
+    "Description" character varying(3000) NOT NULL,
+    "Severity" character varying(20) NOT NULL,
+    "Status" character varying(40) NOT NULL,
+    "ContainsPersonalData" boolean NOT NULL,
+    "AffectedDataSummary" character varying(2000) NOT NULL,
+    "ImpactSummary" character varying(2000) NOT NULL,
+    "MitigationSummary" character varying(2000) NOT NULL,
+    "NotifyAnpd" boolean NOT NULL,
+    "NotifyDataSubjects" boolean NOT NULL,
+    "AssignedAdminUserId" character varying(40) NULL,
+    "DetectedAtUtc" timestamp with time zone NOT NULL,
+    "OccurredAtUtc" timestamp with time zone NULL,
+    "ContainedAtUtc" timestamp with time zone NULL,
+    "ReportedToAnpdAtUtc" timestamp with time zone NULL,
+    "ReportedToDataSubjectsAtUtc" timestamp with time zone NULL,
+    "CreatedAtUtc" timestamp with time zone NOT NULL,
+    "UpdatedAtUtc" timestamp with time zone NOT NULL,
+    CONSTRAINT "PK_{securityIncidentTable}" PRIMARY KEY ("Id")
+);
+""";
+
+            await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+        }
+
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{securityIncidentTable}_DetectedAtUtc" ON "{securityIncidentTable}" ("DetectedAtUtc");""",
+            cancellationToken);
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{securityIncidentTable}_Status_ContainsPersonalData" ON "{securityIncidentTable}" ("Status", "ContainsPersonalData");""",
             cancellationToken);
     }
 

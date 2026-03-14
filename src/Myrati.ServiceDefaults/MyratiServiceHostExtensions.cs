@@ -1,7 +1,10 @@
+using System.IO;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.RateLimiting;
@@ -49,6 +52,7 @@ public static class MyratiServiceHostExtensions
             });
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
+        ConfigureDataProtection(builder);
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(options =>
         {
@@ -141,6 +145,40 @@ public static class MyratiServiceHostExtensions
         builder.Services.AddHealthChecks();
     }
 
+    private static void ConfigureDataProtection(WebApplicationBuilder builder)
+    {
+        var dataProtectionBuilder = builder.Services
+            .AddDataProtection()
+            .SetApplicationName(builder.Configuration["DataProtection:ApplicationName"]?.Trim() ?? "Myrati");
+
+        var keysPath = builder.Configuration["DataProtection:KeysPath"]?.Trim();
+        if (!string.IsNullOrWhiteSpace(keysPath))
+        {
+            Directory.CreateDirectory(keysPath);
+            dataProtectionBuilder.PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+        }
+
+        var certificatePath = builder.Configuration["DataProtection:CertificatePath"]?.Trim();
+        if (string.IsNullOrWhiteSpace(certificatePath))
+        {
+            return;
+        }
+
+        if (!File.Exists(certificatePath))
+        {
+            throw new InvalidOperationException(
+                $"DataProtection:CertificatePath aponta para um arquivo inexistente: '{certificatePath}'.");
+        }
+
+        var certificatePassword = builder.Configuration["DataProtection:CertificatePassword"] ?? string.Empty;
+        var certificate = X509CertificateLoader.LoadPkcs12FromFile(
+            certificatePath,
+            certificatePassword,
+            X509KeyStorageFlags.DefaultKeySet);
+
+        dataProtectionBuilder.ProtectKeysWithCertificate(certificate);
+    }
+
     private static void ValidateProductionConfiguration(
         IConfiguration configuration,
         string environmentName,
@@ -178,6 +216,7 @@ public static class MyratiServiceHostExtensions
             app.UseSwaggerUI();
         }
 
+        app.UseMiddleware<AuditLogMiddleware>();
         app.UseMiddleware<ApiExceptionMiddleware>();
 
         var configuredUrls = app.Configuration["ASPNETCORE_URLS"] ?? string.Empty;

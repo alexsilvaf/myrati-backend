@@ -1,4 +1,6 @@
+using Myrati.Domain.Auditing;
 using Myrati.Domain.Clients;
+using Myrati.Domain.Compliance;
 using Myrati.Domain.Dashboard;
 using Myrati.Domain.Identity;
 using Myrati.Domain.Notifications;
@@ -10,6 +12,7 @@ namespace Myrati.Application.Abstractions;
 
 public interface IMyratiDbContext
 {
+    IQueryable<AuditLog> AuditLogs { get; }
     IQueryable<AdminUser> AdminUsers { get; }
     IQueryable<PasswordSetupToken> PasswordSetupTokens { get; }
     IQueryable<ProfileSession> ProfileSessions { get; }
@@ -32,6 +35,9 @@ public interface IMyratiDbContext
     IQueryable<UptimeSample> UptimeSamples { get; }
     IQueryable<ContactLead> ContactLeads { get; }
     IQueryable<AdminNotification> AdminNotifications { get; }
+    IQueryable<DataSubjectRequest> DataSubjectRequests { get; }
+    IQueryable<ProcessingActivityRecord> ProcessingActivityRecords { get; }
+    IQueryable<SecurityIncidentRecord> SecurityIncidentRecords { get; }
 
     Task AddAsync<T>(T entity, CancellationToken cancellationToken = default) where T : class;
     void Remove<T>(T entity) where T : class;

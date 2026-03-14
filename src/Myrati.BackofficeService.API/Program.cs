@@ -5,6 +5,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddMyratiServiceHost(
     "Myrati Backoffice Service",
+    typeof(AuditLogsController),
+    typeof(ComplianceController),
     typeof(DashboardController),
     typeof(ProductsController),
     typeof(ProductKanbanController),

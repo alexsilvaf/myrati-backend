@@ -23,6 +23,7 @@
 - [Configuração e ambiente](#configuração-e-ambiente)
 - [Execução local](#execução-local)
 - [Execução com Docker](#execução-com-docker)
+- [Backups e auditoria](#backups-e-auditoria)
 - [Autenticação e autorização](#autenticação-e-autorização)
 - [Automação por agentes](#automação-por-agentes)
 - [SSE e tempo real](#sse-e-tempo-real)
@@ -262,6 +263,19 @@ MYRATI_DB_CONNECTION=Host=postgres;Port=5432;Database=myrati;Username=postgres;P
 MYRATI_JWT_ISSUER=Myrati
 MYRATI_JWT_AUDIENCE=Myrati.Backoffice
 MYRATI_JWT_KEY=CHANGE_THIS_FOR_A_LONG_RANDOM_SECRET_KEY_32+
+MYRATI_BACKUP_INTERVAL_SECONDS=86400
+MYRATI_BACKUP_RETENTION_DAYS=7
+MYRATI_BACKUP_FILE_PREFIX=myrati
+MYRATI_BACKUP_COMPRESSION=gzip:level=6
+MYRATI_BACKUP_ENCRYPTION_CIPHER=aes-256-cbc
+MYRATI_BACKUP_ENCRYPTION_ITERATIONS=250000
+MYRATI_BACKUP_ENCRYPTION_PASSPHRASE=
+MYRATI_AUDIT_RETENTION_DAYS=365
+MYRATI_COMPLIANCE_DATA_SUBJECT_REQUEST_DUE_DAYS=15
+MYRATI_DATAPROTECTION_APPLICATION_NAME=Myrati
+MYRATI_DATAPROTECTION_KEYS_PATH=/var/lib/myrati/dataprotection-keys
+MYRATI_DATAPROTECTION_CERTIFICATE_PATH=
+MYRATI_DATAPROTECTION_CERTIFICATE_PASSWORD=
 MYRATI_EMAIL_FRONTEND_URL=http://localhost:4173
 MYRATI_EMAIL_SENDER_NAME=Myrati
 MYRATI_EMAIL_SENDER_ADDRESS=
@@ -358,6 +372,148 @@ docker compose up --build
 | Identity Service | `http://localhost:5119` |
 | Backoffice Service | `http://localhost:5120` |
 | Public Service | `http://localhost:5121` |
+
+---
+
+## Backups e auditoria
+
+### Backup automático do PostgreSQL
+
+Os `docker-compose` do projeto sobem um sidecar dedicado de backup:
+
+- Compose da raiz: `myrati-postgres-backup`
+- Compose do backend: `postgres-backup`
+
+Esse container executa `pg_dump` em formato customizado no volume `myrati-postgres-backups`, aplica compressão nativa, criptografa o artefato final e pode promover as cópias para o bucket R2 configurado.
+
+Variáveis relevantes:
+
+| Variável | Padrão | Função |
+|----------|--------|--------|
+| `MYRATI_BACKUP_INTERVAL_SECONDS` | `86400` | intervalo entre backups |
+| `MYRATI_BACKUP_RETENTION_DAYS` | `7` | retenção dos dumps |
+| `MYRATI_BACKUP_FILE_PREFIX` | `myrati` | prefixo do arquivo |
+| `MYRATI_BACKUP_COMPRESSION` | `gzip:level=6` | compressão do dump customizado |
+| `MYRATI_BACKUP_ENCRYPTION_PASSPHRASE` | vazio | segredo para gerar `.dump.enc` |
+| `MYRATI_R2_*` | vazio | upload offsite e retenção GFS no Cloudflare R2 |
+
+Exemplo de inspeção local:
+
+```powershell
+docker logs myrati-postgres-backup --tail 20
+docker exec myrati-postgres-backup sh -lc "ls -lah /backups"
+```
+
+Exemplo de restauração com o helper do sidecar:
+
+```powershell
+docker exec -e POSTGRES_PASSWORD=postgres `
+  -e BACKUP_ENCRYPTION_PASSPHRASE=seu-segredo `
+  -i myrati-postgres-backup restore-postgres-backup.sh `
+  /backups/myrati_YYYYMMDDTHHMMSSZ.dump.enc
+```
+
+O sidecar gera:
+
+- `*.dump.enc` criptografado
+- `*.sha256` para verificação de integridade
+- promoção automática em `daily/`, `monthly/` e `yearly/` quando o R2 está configurado
+
+> O backup automático melhora resiliência operacional, mas continua exigindo teste periódico de restore e revisão operacional do segredo de criptografia.
+
+### Auditoria estruturada
+
+O backend agora grava trilha técnica de auditoria para operações autenticadas e mutações públicas sensíveis.
+
+Cobertura atual:
+
+- `/api/v1/auth/*`
+- `/api/v1/backoffice/*` (exceto streams/health/swagger)
+- `POST /api/v1/public/contact`
+- `POST /api/v1/public/licenses/activate`
+
+Cada registro persiste:
+
+- data/hora UTC
+- serviço
+- evento
+- método HTTP
+- rota
+- recurso e identificador quando disponíveis
+- status HTTP e resultado
+- ator autenticado (`userId`, `email`, `role`) quando existir
+- IP, user-agent e trace identifier
+
+Consulta administrativa:
+
+- `GET /api/v1/backoffice/audit-logs?limit=100`
+- acesso: política `BackofficeWrite`
+
+Retenção:
+
+- `MYRATI_AUDIT_RETENTION_DAYS` / `Audit:RetentionDays`
+- limpeza aplicada no startup
+
+### Compliance operacional
+
+O backoffice agora expõe um módulo técnico para suportar as principais obrigações operacionais de privacidade:
+
+- solicitações do titular (`data-subject-requests`)
+- registro de operações de tratamento (`processing-activities`)
+- incidentes de segurança com dados pessoais (`security-incidents`)
+
+Rotas:
+
+- `GET /api/v1/backoffice/compliance`
+- `POST /api/v1/backoffice/compliance/data-subject-requests`
+- `PUT /api/v1/backoffice/compliance/data-subject-requests/{requestId}`
+- `POST /api/v1/backoffice/compliance/processing-activities`
+- `PUT /api/v1/backoffice/compliance/processing-activities/{activityId}`
+- `POST /api/v1/backoffice/compliance/security-incidents`
+- `PUT /api/v1/backoffice/compliance/security-incidents/{incidentId}`
+
+Controle de acesso:
+
+- leitura: política `BackofficeRead`
+- escrita: política `BackofficeWrite`
+
+Prazo padrão da solicitação do titular:
+
+- `MYRATI_COMPLIANCE_DATA_SUBJECT_REQUEST_DUE_DAYS`
+
+### Data Protection
+
+Os serviços agora aceitam persistência compartilhada de chaves do ASP.NET Data Protection para evitar rotação efêmera a cada recreate de container.
+
+Variáveis relevantes:
+
+- `MYRATI_DATAPROTECTION_APPLICATION_NAME`
+- `MYRATI_DATAPROTECTION_KEYS_PATH`
+- `MYRATI_DATAPROTECTION_CERTIFICATE_PATH`
+- `MYRATI_DATAPROTECTION_CERTIFICATE_PASSWORD`
+
+> Em produção, para eliminar chaves persistidas em claro, configure também um certificado PFX e use `MYRATI_DATAPROTECTION_CERTIFICATE_PATH`.
+
+### Linha de base técnica para LGPD
+
+Do ponto de vista de software, o projeto agora cobre uma base técnica importante para os artigos 37, 46, 48 e 49 da LGPD:
+
+- registro técnico de operações relevantes
+- backup recorrente do banco com compressão, criptografia e cópia offsite opcional
+- retenção configurável para logs de auditoria
+- segregação de acesso aos logs via autorização administrativa
+- módulo técnico para solicitações do titular
+- registro estruturado das atividades de tratamento
+- workflow técnico para incidentes de segurança com dados pessoais
+- persistência configurável de chaves de proteção da aplicação
+
+Ainda assim, conformidade LGPD completa não depende só do código. Permanecem itens operacionais e jurídicos fora deste repositório:
+
+- definição de base legal e finalidade por fluxo de negócio
+- revisão jurídica do conteúdo cadastrado em `processing-activities`
+- procedimento formal de resposta e comunicação para incidentes reais
+- política interna de retenção e descarte
+- contratos com operadores e nomeação do encarregado quando aplicável
 
 ---
 
@@ -2020,6 +2176,8 @@ dotnet test .\Myrati.slnx
 ## Observações importantes
 
 - O banco é criado com `EnsureCreated` — ainda não há migrations versionadas
+- O compose agora gera backups automáticos do PostgreSQL no volume `myrati-postgres-backups`
+- O backend expõe trilha técnica em `GET /api/v1/backoffice/audit-logs`
 - Swagger ativo apenas em `Development`
 - O stream SSE do backoffice aceita token via query string para compatibilidade com `EventSource`
 - O hub de tempo real é em memória (adequado para instância única)

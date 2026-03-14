@@ -7,6 +7,7 @@ using Myrati.API.Security;
 using Myrati.Application.Abstractions;
 using Microsoft.OpenApi;
 using Myrati.Application.DependencyInjection;
+using Myrati.Application.Services;
 using Myrati.Infrastructure.DependencyInjection;
 using Myrati.Infrastructure.Persistence;
 using Myrati.Infrastructure.Seeding;
@@ -37,6 +38,8 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(builder.Configuration);
+builder.Services.AddHttpClient<SystemStatusMonitorRunner>();
+builder.Services.AddHostedService<SystemStatusMonitorBackgroundService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -126,6 +129,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseMiddleware<Myrati.API.Middleware.AuditLogMiddleware>();
 app.UseMiddleware<Myrati.API.Middleware.ApiExceptionMiddleware>();
 if (hasHttpsEndpoint)
 {

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Myrati.Application.Abstractions;
 using Myrati.Application.Realtime;
+using Myrati.Infrastructure.Auditing;
 using Myrati.Infrastructure.Email;
 using Myrati.Infrastructure.Persistence;
 using Myrati.Infrastructure.Realtime;
@@ -33,6 +34,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMyratiDbContext>(provider => provider.GetRequiredService<MyratiDbContext>());
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
+        services.AddSingleton<IAuditRetentionSettings, AuditRetentionSettings>();
+        services.AddSingleton<IAuditLogWriter, AuditLogWriter>();
         services.AddHttpClient(nameof(GmailPasswordSetupEmailSender));
         services.AddHttpClient(nameof(GmailContactLeadEmailSender));
 
