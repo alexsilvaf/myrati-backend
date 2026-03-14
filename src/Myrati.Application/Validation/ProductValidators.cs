@@ -13,7 +13,7 @@ public sealed class UpsertProductPlanRequestValidator : AbstractValidator<Upsert
         RuleFor(x => x.DevelopmentCost).GreaterThanOrEqualTo(0).When(x => x.DevelopmentCost.HasValue);
         RuleFor(x => x.MaintenanceCost).GreaterThanOrEqualTo(0).When(x => x.MaintenanceCost.HasValue);
         RuleFor(x => x.RevenueSharePercent).InclusiveBetween(0, 100).When(x => x.RevenueSharePercent.HasValue);
-        RuleFor(x => x.MaintenanceProfitMargin).InclusiveBetween(0, 100).When(x => x.MaintenanceProfitMargin.HasValue);
+        RuleFor(x => x.MaintenanceProfitMargin).GreaterThanOrEqualTo(0).When(x => x.MaintenanceProfitMargin.HasValue);
     }
 }
 

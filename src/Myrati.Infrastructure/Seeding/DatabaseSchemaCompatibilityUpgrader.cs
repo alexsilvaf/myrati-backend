@@ -37,6 +37,7 @@ internal static class DatabaseSchemaCompatibilityUpgrader
             var sprintTable = GetTableName(context, typeof(ProductSprint));
             var taskTable = GetTableName(context, typeof(ProductTask));
             var companyCostTable = GetTableName(context, typeof(CompanyCost));
+            var cashTransactionTable = GetTableName(context, typeof(CashTransaction));
             var adminNotificationTable = GetTableName(context, typeof(AdminNotification));
             var activityFeedTable = GetTableName(context, typeof(ActivityFeedItem));
             var dataSubjectRequestTable = GetTableName(context, typeof(DataSubjectRequest));
@@ -106,7 +107,15 @@ internal static class DatabaseSchemaCompatibilityUpgrader
                 productPlanTable,
                 "MaintenanceProfitMargin",
                 $"""ALTER TABLE "{productPlanTable}" ADD COLUMN "MaintenanceProfitMargin" NUMERIC NULL;""",
-                $"""ALTER TABLE "{productPlanTable}" ADD COLUMN "MaintenanceProfitMargin" numeric(5,2) NULL;""",
+                $"""ALTER TABLE "{productPlanTable}" ADD COLUMN "MaintenanceProfitMargin" numeric(18,2) NULL;""",
+                cancellationToken);
+            await EnsurePostgresNumericColumnPrecisionAsync(
+                connection,
+                context.Database.ProviderName,
+                productPlanTable,
+                "MaintenanceProfitMargin",
+                18,
+                2,
                 cancellationToken);
             await EnsureColumnNullableAsync(
                 connection,
@@ -170,6 +179,11 @@ internal static class DatabaseSchemaCompatibilityUpgrader
                 connection,
                 context.Database.ProviderName,
                 companyCostTable,
+                cancellationToken);
+            await EnsureCashTransactionTableAsync(
+                connection,
+                context.Database.ProviderName,
+                cashTransactionTable,
                 cancellationToken);
             await EnsureAdminNotificationTableAsync(
                 connection,
@@ -271,6 +285,62 @@ internal static class DatabaseSchemaCompatibilityUpgrader
 
         var sql = IsSqlite(providerName) ? sqliteSql : postgresSql;
         await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+    }
+
+    private static async Task EnsurePostgresNumericColumnPrecisionAsync(
+        DbConnection connection,
+        string? providerName,
+        string tableName,
+        string columnName,
+        int expectedPrecision,
+        int expectedScale,
+        CancellationToken cancellationToken)
+    {
+        if (IsSqlite(providerName) || !await ColumnExistsAsync(connection, providerName, tableName, columnName, cancellationToken))
+        {
+            return;
+        }
+
+        const string sql = """
+SELECT numeric_precision, numeric_scale
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = @table
+  AND column_name = @column
+LIMIT 1;
+""";
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@table";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "@column";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return;
+        }
+
+        var precision = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetValue(0));
+        var scale = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1));
+
+        if (precision == expectedPrecision && scale == expectedScale)
+        {
+            return;
+        }
+
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""ALTER TABLE "{tableName}" ALTER COLUMN "{columnName}" TYPE numeric({expectedPrecision},{expectedScale});""",
+            cancellationToken);
     }
 
     private static async Task EnsureProductCollaboratorTableAsync(
@@ -721,6 +791,56 @@ CREATE TABLE "{companyCostTable}" (
         await ExecuteNonQueryAsync(
             connection,
             $"""CREATE INDEX IF NOT EXISTS "IX_{companyCostTable}_Status_Category" ON "{companyCostTable}" ("Status", "Category");""",
+            cancellationToken);
+    }
+
+    private static async Task EnsureCashTransactionTableAsync(
+        DbConnection connection,
+        string? providerName,
+        string cashTransactionTable,
+        CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(connection, providerName, cashTransactionTable, cancellationToken))
+        {
+            var sql = IsSqlite(providerName)
+                ? $"""
+CREATE TABLE "{cashTransactionTable}" (
+    "Id" TEXT NOT NULL CONSTRAINT "PK_{cashTransactionTable}" PRIMARY KEY,
+    "Type" TEXT NOT NULL,
+    "Category" TEXT NOT NULL,
+    "Amount" NUMERIC NOT NULL,
+    "Description" TEXT NOT NULL,
+    "ReferenceProductId" TEXT NOT NULL,
+    "ReferenceProductName" TEXT NOT NULL,
+    "Date" TEXT NOT NULL,
+    "CreatedAtUtc" TEXT NOT NULL
+);
+"""
+                : $"""
+CREATE TABLE "{cashTransactionTable}" (
+    "Id" character varying(40) NOT NULL,
+    "Type" character varying(20) NOT NULL,
+    "Category" character varying(40) NOT NULL,
+    "Amount" numeric(18,2) NOT NULL,
+    "Description" character varying(240) NOT NULL,
+    "ReferenceProductId" character varying(40) NOT NULL,
+    "ReferenceProductName" character varying(120) NOT NULL,
+    "Date" date NOT NULL,
+    "CreatedAtUtc" timestamp with time zone NOT NULL,
+    CONSTRAINT "PK_{cashTransactionTable}" PRIMARY KEY ("Id")
+);
+""";
+
+            await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+        }
+
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{cashTransactionTable}_ReferenceProductId_Date" ON "{cashTransactionTable}" ("ReferenceProductId", "Date");""",
+            cancellationToken);
+        await ExecuteNonQueryAsync(
+            connection,
+            $"""CREATE INDEX IF NOT EXISTS "IX_{cashTransactionTable}_Date_CreatedAtUtc" ON "{cashTransactionTable}" ("Date", "CreatedAtUtc");""",
             cancellationToken);
     }
 

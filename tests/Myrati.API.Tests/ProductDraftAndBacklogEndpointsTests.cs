@@ -47,6 +47,42 @@ public sealed class ProductDraftAndBacklogEndpointsTests(CustomWebApplicationFac
     }
 
     [Fact]
+    public async Task CreateProduct_AllowsHighMaintenanceMarginAndOptionalMaintenanceFields()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..6];
+
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var auth = await client.LoginAsAdminAsync();
+        client.UseBearerToken(auth.AccessToken);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/backoffice/products",
+            new CreateProductRequest(
+                $"Produto Margem {suffix}",
+                "Produto com margem de manutencao acima de 100%.",
+                "Servicos",
+                "Ativo",
+                "development",
+                [
+                    new UpsertProductPlanRequest("Enterprise", null, 0m, 15000m, null, null, 1000m)
+                ]));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var createdProduct = await response.Content.ReadFromJsonAsync<ProductDetailDto>();
+        Assert.NotNull(createdProduct);
+
+        var plan = Assert.Single(createdProduct.Plans);
+        Assert.Equal(15000m, plan.DevelopmentCost);
+        Assert.Null(plan.MaintenanceCost);
+        Assert.Equal(1000m, plan.MaintenanceProfitMargin);
+    }
+
+    [Fact]
     public async Task ProductSetupAndBacklogImport_RequiresStrictSprintRangesAndMergesDuplicates()
     {
         var suffix = Guid.NewGuid().ToString("N")[..6];

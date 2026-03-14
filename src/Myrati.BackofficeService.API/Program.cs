@@ -9,6 +9,7 @@ builder.AddMyratiServiceHost(
     typeof(ComplianceController),
     typeof(CostsController),
     typeof(DashboardController),
+    typeof(TransactionsController),
     typeof(ProductsController),
     typeof(ProductKanbanController),
     typeof(LicensesController),

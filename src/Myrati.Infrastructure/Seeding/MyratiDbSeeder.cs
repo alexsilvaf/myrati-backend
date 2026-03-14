@@ -191,6 +191,22 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
             }, cancellationToken);
         }
 
+        foreach (var transactionSeed in CashTransactionSeeds)
+        {
+            await context.AddAsync(new CashTransaction
+            {
+                Id = transactionSeed.Id,
+                Type = transactionSeed.Type,
+                Category = transactionSeed.Category,
+                Amount = transactionSeed.Amount,
+                Description = transactionSeed.Description,
+                ReferenceProductId = transactionSeed.ReferenceProductId,
+                ReferenceProductName = transactionSeed.ReferenceProductName,
+                Date = ParseDate(transactionSeed.Date),
+                CreatedAtUtc = ParseDateTimeOffset(transactionSeed.CreatedAtUtc)
+            }, cancellationToken);
+        }
+
         foreach (var snapshotSeed in RevenueSnapshotSeeds)
         {
             await context.AddAsync(new RevenueSnapshot
@@ -386,6 +402,7 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         var legacyTaskIds = TaskSeeds.Select(seed => seed.Id).ToArray();
         var legacyProductExpenseIds = ProductExpenseSeeds.Select(seed => seed.Id).ToArray();
         var legacyCompanyCostIds = CompanyCostSeeds.Select(seed => seed.Id).ToArray();
+        var legacyCashTransactionIds = CashTransactionSeeds.Select(seed => seed.Id).ToArray();
         var legacyRevenueSnapshotIds = RevenueSnapshotSeeds.Select(seed => seed.Id).ToArray();
         var legacyDashboardActivityIds = DashboardActivitySeeds.Select(seed => seed.Id).ToArray();
         var legacyApiKeyIds = ApiKeySeeds.Select(seed => seed.Id).ToArray();
@@ -437,6 +454,11 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
             .Where(cost => legacyCompanyCostIds.Contains(cost.Id))
             .ToListAsync(cancellationToken);
         context.RemoveRange(legacyCompanyCosts);
+
+        var legacyCashTransactions = await context.CashTransactionsSet
+            .Where(transaction => legacyCashTransactionIds.Contains(transaction.Id))
+            .ToListAsync(cancellationToken);
+        context.RemoveRange(legacyCashTransactions);
 
         var legacyProducts = await context.ProductsSet
             .Where(product => legacyProductIds.Contains(product.Id))
@@ -574,6 +596,9 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
 
     private static DateOnly ParseDate(string value) =>
         DateOnly.ParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static DateTimeOffset ParseDateTimeOffset(string value) =>
+        DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
     private static string SerializeTags(IReadOnlyCollection<string> tags) =>
         System.Text.Json.JsonSerializer.Serialize(tags);
@@ -759,6 +784,16 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         new("CC-015", "Escritorio coworking", "Sala privativa 6 pessoas no WeWork Faria Lima", "infrastructure", 4200m, "monthly", "WeWork", "2024-01-01", "2026-04-01", "Ativo"),
         new("CC-016", "Internet fibra dedicada", "Link dedicado 500Mbps simétrico com SLA 99.9%", "infrastructure", 890m, "monthly", "Vivo Empresas", "2024-01-01", "2026-04-01", "Ativo"),
         new("CC-017", "Adobe Creative Cloud", "Licenca para designer — Photoshop, Illustrator, After Effects", "subscriptions", 320m, "monthly", "Adobe Inc.", "2024-02-01", null, "Cancelado")
+    ];
+
+    private static readonly CashTransactionSeed[] CashTransactionSeeds =
+    [
+        new("TXN-001", "deposit", "license_revenue", 1250m, "Mensalidade ERP - marco", "PRD-001", "Myrati ERP", "2026-03-01", "2026-03-01T09:10:00Z"),
+        new("TXN-002", "withdrawal", "supplier", 380m, "Fornecedor cloud ERP", "PRD-001", "Myrati ERP", "2026-03-02", "2026-03-02T13:20:00Z"),
+        new("TXN-003", "deposit", "development_payment", 3200m, "Entrada projeto CRM", "PRD-002", "Myrati CRM", "2026-03-03", "2026-03-03T11:00:00Z"),
+        new("TXN-004", "withdrawal", "salary", 640m, "Rateio equipe produto CRM", "PRD-002", "Myrati CRM", "2026-03-04", "2026-03-04T17:10:00Z"),
+        new("TXN-005", "deposit", "revenue_share", 980m, "Participacao analytics", "PRD-003", "Myrati Analytics", "2026-03-05", "2026-03-05T10:45:00Z"),
+        new("TXN-006", "withdrawal", "tax", 210m, "Tributacao analytics", "PRD-003", "Myrati Analytics", "2026-03-06", "2026-03-06T16:00:00Z")
     ];
 
     private static readonly RevenueSnapshotSeed[] RevenueSnapshotSeeds =
@@ -965,6 +1000,17 @@ public sealed class MyratiDbSeeder(IPasswordHasher passwordHasher, IConfiguratio
         string StartDate,
         string? NextBillingDate,
         string Status);
+
+    private sealed record CashTransactionSeed(
+        string Id,
+        string Type,
+        string Category,
+        decimal Amount,
+        string Description,
+        string ReferenceProductId,
+        string ReferenceProductName,
+        string Date,
+        string CreatedAtUtc);
 
     private sealed record RevenueSnapshotSeed(string Id, string Month, decimal Revenue, int Licenses, int SortOrder);
 

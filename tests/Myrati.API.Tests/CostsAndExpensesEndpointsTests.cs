@@ -145,14 +145,14 @@ public sealed class CostsAndExpensesEndpointsTests(CustomWebApplicationFactory f
 
         var activeProduct = await activeDetailResponse.Content.ReadFromJsonAsync<ProductDetailDto>();
         Assert.NotNull(activeProduct);
-        Assert.Equal(100m, activeProduct.MonthlyRevenue);
+        Assert.Equal(123m, activeProduct.MonthlyRevenue);
 
         var activeListResponse = await client.GetAsync("/api/v1/backoffice/products");
         activeListResponse.EnsureSuccessStatusCode();
 
         var activeProducts = await activeListResponse.Content.ReadFromJsonAsync<IReadOnlyCollection<ProductSummaryDto>>();
         Assert.NotNull(activeProducts);
-        Assert.Equal(100m, Assert.Single(activeProducts, item => item.Id == product.Id).MonthlyRevenue);
+        Assert.Equal(123m, Assert.Single(activeProducts, item => item.Id == product.Id).MonthlyRevenue);
 
         var updateProductResponse = await client.PutAsJsonAsync(
             $"/api/v1/backoffice/products/{product.Id}",
@@ -255,6 +255,170 @@ public sealed class CostsAndExpensesEndpointsTests(CustomWebApplicationFactory f
     }
 
     [Fact]
+    public async Task CashTransactionEndpoints_SupportCrudFlow()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..6];
+
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var auth = await client.LoginAsAdminAsync();
+        client.UseBearerToken(auth.AccessToken);
+
+        var initialResponse = await client.GetAsync("/api/v1/backoffice/transactions");
+        initialResponse.EnsureSuccessStatusCode();
+        var initialTransactions = await initialResponse.Content.ReadFromJsonAsync<IReadOnlyCollection<CashTransactionDto>>();
+        Assert.NotNull(initialTransactions);
+
+        var createResponse = await client.PostAsJsonAsync(
+            "/api/v1/backoffice/transactions",
+            new CreateCashTransactionRequest(
+                "deposit",
+                "client_payment",
+                150m,
+                $"Entrada {suffix}",
+                null,
+                "2026-03-10"));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var createdTransaction = await createResponse.Content.ReadFromJsonAsync<CashTransactionDto>();
+        Assert.NotNull(createdTransaction);
+        Assert.Equal($"Entrada {suffix}", createdTransaction.Description);
+        Assert.Null(createdTransaction.ReferenceProductId);
+        Assert.Null(createdTransaction.ReferenceProductName);
+
+        var listAfterCreateResponse = await client.GetAsync("/api/v1/backoffice/transactions");
+        listAfterCreateResponse.EnsureSuccessStatusCode();
+        var transactionsAfterCreate = await listAfterCreateResponse.Content.ReadFromJsonAsync<IReadOnlyCollection<CashTransactionDto>>();
+        Assert.NotNull(transactionsAfterCreate);
+        Assert.Equal(initialTransactions.Count + 1, transactionsAfterCreate.Count);
+        Assert.Contains(transactionsAfterCreate, transaction => transaction.Id == createdTransaction.Id);
+
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/v1/backoffice/transactions/{createdTransaction.Id}",
+            new UpdateCashTransactionRequest(
+                "withdrawal",
+                "supplier",
+                90m,
+                $"Fornecedor {suffix}",
+                "PRD-004",
+                "2026-03-11"));
+        updateResponse.EnsureSuccessStatusCode();
+
+        var updatedTransaction = await updateResponse.Content.ReadFromJsonAsync<CashTransactionDto>();
+        Assert.NotNull(updatedTransaction);
+        Assert.Equal(createdTransaction.Id, updatedTransaction.Id);
+        Assert.Equal("withdrawal", updatedTransaction.Type);
+        Assert.Equal("PRD-004", updatedTransaction.ReferenceProductId);
+        Assert.Equal($"Fornecedor {suffix}", updatedTransaction.Description);
+
+        var deleteResponse = await client.DeleteAsync($"/api/v1/backoffice/transactions/{createdTransaction.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        var listAfterDeleteResponse = await client.GetAsync("/api/v1/backoffice/transactions");
+        listAfterDeleteResponse.EnsureSuccessStatusCode();
+        var transactionsAfterDelete = await listAfterDeleteResponse.Content.ReadFromJsonAsync<IReadOnlyCollection<CashTransactionDto>>();
+        Assert.NotNull(transactionsAfterDelete);
+        Assert.DoesNotContain(transactionsAfterDelete, transaction => transaction.Id == createdTransaction.Id);
+    }
+
+    [Fact]
+    public async Task DeveloperOnlySeesTransactionsForProductsWithPlanVisibility()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..6];
+
+        using var adminClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var adminAuth = await adminClient.LoginAsAdminAsync();
+        adminClient.UseBearerToken(adminAuth.AccessToken);
+
+        var visibleTransactionResponse = await adminClient.PostAsJsonAsync(
+            "/api/v1/backoffice/transactions",
+            new CreateCashTransactionRequest(
+                "deposit",
+                "client_payment",
+                70m,
+                $"Visivel {suffix}",
+                "PRD-004",
+                "2026-03-12"));
+        visibleTransactionResponse.EnsureSuccessStatusCode();
+        var visibleTransaction = await visibleTransactionResponse.Content.ReadFromJsonAsync<CashTransactionDto>();
+        Assert.NotNull(visibleTransaction);
+
+        var hiddenProductResponse = await adminClient.PostAsJsonAsync(
+            "/api/v1/backoffice/products",
+            new CreateProductRequest(
+                $"Produto Restrito Transacao {suffix}",
+                "Produto para validar visibilidade de transações.",
+                "Financeiro",
+                "Ativo",
+                "subscription",
+                [
+                    new UpsertProductPlanRequest("Starter", null, 40m, null, null, null, null)
+                ]));
+        hiddenProductResponse.EnsureSuccessStatusCode();
+        var hiddenProduct = await hiddenProductResponse.Content.ReadFromJsonAsync<ProductDetailDto>();
+        Assert.NotNull(hiddenProduct);
+
+        var collaboratorResponse = await adminClient.PostAsJsonAsync(
+            $"/api/v1/backoffice/products/{hiddenProduct.Id}/collaborators",
+            new AddProductCollaboratorRequest(
+                "TM-005",
+                new ProductCollaboratorPermissionsDto(
+                    new ProductPermissionSetDto(true, true, true, false),
+                    new ProductPermissionSetDto(true, true, true, false),
+                    new ProductPermissionSetDto(true, true, true, false),
+                    new ProductPermissionSetDto(false, false, false, false),
+                    new ProductPermissionSetDto(true, false, false, false))));
+        collaboratorResponse.EnsureSuccessStatusCode();
+
+        var hiddenTransactionResponse = await adminClient.PostAsJsonAsync(
+            "/api/v1/backoffice/transactions",
+            new CreateCashTransactionRequest(
+                "deposit",
+                "client_payment",
+                55m,
+                $"Oculta {suffix}",
+                hiddenProduct.Id,
+                "2026-03-13"));
+        hiddenTransactionResponse.EnsureSuccessStatusCode();
+        var hiddenTransaction = await hiddenTransactionResponse.Content.ReadFromJsonAsync<CashTransactionDto>();
+        Assert.NotNull(hiddenTransaction);
+
+        using var developerClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        var developerAuth = await developerClient.LoginAsync("bruno@myrati.com", "Myrati@123");
+        developerClient.UseBearerToken(developerAuth.AccessToken);
+
+        var developerResponse = await developerClient.GetAsync("/api/v1/backoffice/transactions");
+        developerResponse.EnsureSuccessStatusCode();
+        var developerTransactions = await developerResponse.Content.ReadFromJsonAsync<IReadOnlyCollection<CashTransactionDto>>();
+
+        Assert.NotNull(developerTransactions);
+        Assert.Contains(developerTransactions, transaction => transaction.Id == visibleTransaction.Id);
+        Assert.DoesNotContain(developerTransactions, transaction => transaction.Id == hiddenTransaction.Id);
+        Assert.DoesNotContain(developerTransactions, transaction => transaction.ReferenceProductId == "PRD-002");
+        Assert.DoesNotContain(developerTransactions, transaction => transaction.ReferenceProductId == "PRD-003");
+
+        var deleteVisibleTransactionResponse = await adminClient.DeleteAsync($"/api/v1/backoffice/transactions/{visibleTransaction.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteVisibleTransactionResponse.StatusCode);
+
+        var deleteHiddenTransactionResponse = await adminClient.DeleteAsync($"/api/v1/backoffice/transactions/{hiddenTransaction.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteHiddenTransactionResponse.StatusCode);
+
+        var deleteHiddenProductResponse = await adminClient.DeleteAsync($"/api/v1/backoffice/products/{hiddenProduct.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteHiddenProductResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task CompanyCosts_GetForDeveloper_ReturnsForbidden()
     {
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
@@ -273,8 +437,8 @@ public sealed class CostsAndExpensesEndpointsTests(CustomWebApplicationFactory f
     private static UpsertProductPlanRequest BuildMaintenancePlanRequest(string salesStrategy) =>
         salesStrategy switch
         {
-            "development" => new UpsertProductPlanRequest("Padrão", null, 0m, 1000m, null, null, 30m),
-            "revenue_share" => new UpsertProductPlanRequest("Padrão", null, 0m, null, null, 5m, 30m),
+            "development" => new UpsertProductPlanRequest("Padrão", null, 0m, 1000m, 100m, null, 30m),
+            "revenue_share" => new UpsertProductPlanRequest("Padrão", null, 0m, null, 100m, 5m, 30m),
             _ => throw new ArgumentOutOfRangeException(nameof(salesStrategy), salesStrategy, "Estratégia não suportada no teste.")
         };
 }

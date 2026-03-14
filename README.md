@@ -33,6 +33,7 @@
   - [Products](#products)
   - [Kanban por produto](#kanban-por-produto)
   - [Costs](#costs)
+  - [Transactions](#transactions)
   - [Licenses](#licenses)
   - [Clients](#clients)
   - [Users](#users)
@@ -59,6 +60,7 @@ O backend suporta todos os módulos expostos no frontend da Myrati:
 | **Dashboard** | KPIs, receita mensal e atividades recentes |
 | **Catálogo** | Produtos, estratégias de venda, planos e gestão de licenças |
 | **Custos** | Custos corporativos e gastos operacionais por produto |
+| **Transações** | Entradas e saídas do caixa com referência obrigatória a produto |
 | **Desenvolvimento** | Kanban por produto com sprints e tarefas |
 | **Clientes** | CRUD com usuários e licenças vinculadas |
 | **Usuários** | Diretório de usuários conectados |
@@ -854,7 +856,7 @@ Retorna os dados do usuário autenticado a partir do token JWT.
 
 #### `GET /api/v1/backoffice/dashboard`
 
-Retorna os KPIs, receitas mensais, receita por produto e atividades recentes.
+Retorna os KPIs, receitas mensais, saldo disponível, despesas mensais visíveis por produto e atividades recentes.
 
 - **Acesso:** `BackofficeRead`
 - **Header:** `Authorization: Bearer {token}`
@@ -863,13 +865,16 @@ Retorna os KPIs, receitas mensais, receita por produto e atividades recentes.
 
 ```json
 {
+  "availableBalance": 35540.00,
   "totalMonthlyRevenue": 45890.00,
+  "totalMonthlyProductExpenses": 10350.00,
   "activeLicensesCount": 142,
   "totalLicensesCount": 180,
   "onlineUsersCount": 89,
   "totalUsersCount": 234,
   "utilizationRate": 78,
   "activeClients": 56,
+  "canViewRevenue": true,
   "monthlyRevenue": [
     {
       "month": "Jan",
@@ -904,6 +909,12 @@ Retorna os KPIs, receitas mensais, receita por produto e atividades recentes.
 }
 ```
 
+Regras importantes:
+
+- `availableBalance` é calculado como `receita mensal visível - gastos mensais visíveis dos produtos`
+- para `Desenvolvedor`, dashboard e KPIs financeiros consideram apenas produtos onde ele é colaborador
+- para `Desenvolvedor`, receita, despesas de produto e saldo disponível só entram no snapshot quando o colaborador possui `plans.view = true`
+
 ---
 
 ### Products
@@ -915,8 +926,8 @@ Produtos agora expõem a estratégia comercial do item e, para telas de detalhe,
 | `salesStrategy` | Uso | Regras de plano |
 |-----------------|-----|-----------------|
 | `subscription` | Licenciamento mensal tradicional | `monthlyPrice > 0` quando o produto nao estiver em `Em desenvolvimento` |
-| `development` | Projeto sob encomenda + manutenção | `developmentCost > 0` e `maintenanceCost > 0` quando o produto nao estiver em `Em desenvolvimento` |
-| `revenue_share` | Manutenção + participação no faturamento | `maintenanceCost > 0` e `revenueSharePercent > 0` quando o produto nao estiver em `Em desenvolvimento` |
+| `development` | Projeto sob encomenda + manutenção | `developmentCost > 0` quando o produto nao estiver em `Em desenvolvimento`; `maintenanceCost` e `maintenanceProfitMargin` sao opcionais |
+| `revenue_share` | Manutenção + participação no faturamento | `revenueSharePercent > 0` quando o produto nao estiver em `Em desenvolvimento`; `maintenanceCost` e `maintenanceProfitMargin` sao opcionais |
 
 #### `GET /api/v1/backoffice/products`
 
@@ -1064,13 +1075,13 @@ Cria um produto com planos e estratégia de venda.
 | `plans[].maxUsers` | int | Não | `> 0` quando informado; `null` = ilimitado |
 | `plans[].monthlyPrice` | decimal | Sim | `>= 0` |
 | `plans[].developmentCost` | decimal | Condicional | Obrigatório em `development` fora do rascunho |
-| `plans[].maintenanceCost` | decimal | Condicional | Obrigatório em `development` e `revenue_share` fora do rascunho |
+| `plans[].maintenanceCost` | decimal | Não | Preco fixo opcional da manutencao recorrente |
 | `plans[].revenueSharePercent` | decimal | Condicional | Obrigatório em `revenue_share` fora do rascunho |
-| `plans[].maintenanceProfitMargin` | decimal | Não | Percentual opcional usado para derivar manutenção a partir dos gastos |
+| `plans[].maintenanceProfitMargin` | decimal | Não | Percentual opcional sem teto de negocio; quando informado, entra no calculo da manutencao sobre as despesas |
 
 > A versão não é enviada no payload. O backend calcula `version` como `productionDeploys.devSprintsSinceLastDeploy`.
 
-> `monthlyRevenue` segue a regra operacional atual: produto fora de `Ativo` retorna `0`; em `development` e `revenue_share`, quando não há licença mensal ativa, o backend deriva a manutenção a partir dos gastos recorrentes do produto e da margem média dos planos.
+> `monthlyRevenue` segue a regra operacional atual: produto fora de `Ativo` retorna `0`; em `development` e `revenue_share`, quando não há licença mensal ativa, o backend deriva a manutenção como `maintenanceCost` medio dos planos + margem média aplicada sobre os gastos recorrentes do produto.
 
 **Response `201 Created`:** retorna `ProductDetailDto` em JSON, sem cabeçalho `Location`.
 
@@ -1210,6 +1221,41 @@ Regras importantes:
 - `Desenvolvedor` não acessa a rota corporativa de custos e recebe `403 Forbidden`
 - gastos `one_time` não entram no cálculo da manutenção mensal do produto
 - a venda de produtos `development` continua persistida na licença (`developmentCost`) e pode ser exibida pela UI como lançamento financeiro informativo, sem entrar na manutenção
+
+---
+
+### Transactions
+
+Fluxo de caixa do backoffice, sempre referenciado a um produto existente.
+
+| Método | Rota | Política | Uso |
+|--------|------|----------|-----|
+| `GET` | `/api/v1/backoffice/transactions` | `BackofficeRead` | Lista transações visíveis para o usuário atual |
+| `POST` | `/api/v1/backoffice/transactions` | `BackofficeWrite` | Cria uma nova entrada ou saída |
+| `PUT` | `/api/v1/backoffice/transactions/{transactionId}` | `BackofficeWrite` | Atualiza uma transação existente |
+| `DELETE` | `/api/v1/backoffice/transactions/{transactionId}` | `BackofficeWrite` | Remove uma transação |
+
+#### Exemplo de transação
+
+```json
+{
+  "type": "deposit",
+  "category": "development_payment",
+  "amount": 1500,
+  "description": "Entrada referente ao projeto Alpha",
+  "referenceProductId": null,
+  "date": "2026-03-14"
+}
+```
+
+Regras importantes:
+
+- `type` aceita `deposit` ou `withdrawal`
+- `category` aceita `license_revenue`, `development_payment`, `revenue_share`, `client_payment`, `salary`, `tax`, `supplier`, `transfer`, `refund` e `other`
+- a referência sempre aponta para um produto válido e o backend persiste também o nome atual do produto para histórico
+- `referenceProductId` é opcional; quando preenchido, deve apontar para um produto existente
+- para `Desenvolvedor`, a listagem inclui somente transações cujos produtos de referência tenham colaborador com `plans.view = true`
+- o saldo acumulado retornado pela API é recalculado na sequência cronológica visível ao usuário atual
 
 ---
 
@@ -2125,8 +2171,8 @@ Health check da aplicação.
 | `maxUsers` (plano) | Maior que 0 quando informado; `null` significa ilimitado |
 | `monthlyPrice` (plano) | Maior ou igual a 0 |
 | `developmentCost` (plano/licença) | Maior que 0 quando informado |
-| `maintenanceCost` (plano) | Maior que 0 quando exigido pela estratégia |
-| `maintenanceProfitMargin` (plano) | Entre 0 e 100 quando informado |
+| `maintenanceCost` (plano) | Maior ou igual a 0 quando informado; opcional |
+| `maintenanceProfitMargin` (plano) | Maior ou igual a 0 quando informado; sem teto de negocio |
 | `revenueSharePercent` (plano/licença) | Entre 0 e 100 |
 | `monthlyValue` (licença) | Maior que 0 |
 
@@ -2141,8 +2187,8 @@ Health check da aplicação.
 - `version` do produto é sempre calculada como `productionDeploys.devSprintsSinceLastDeploy`
 - produtos em `Em desenvolvimento` aceitam plano em rascunho com campos comerciais pendentes
 - produtos `subscription` exigem `monthlyPrice > 0` em todos os planos quando saem do rascunho
-- produtos `development` exigem `developmentCost` e `maintenanceCost` em todos os planos quando saem do rascunho
-- produtos `revenue_share` exigem `maintenanceCost` e `revenueSharePercent` em todos os planos quando saem do rascunho
+- produtos `development` exigem `developmentCost` em todos os planos quando saem do rascunho; `maintenanceCost` e `maintenanceProfitMargin` continuam opcionais
+- produtos `revenue_share` exigem `revenueSharePercent` em todos os planos quando saem do rascunho; `maintenanceCost` e `maintenanceProfitMargin` continuam opcionais
 - licenças exigem plano com `maxUsers > 0`
 - o kanban só aceita escrita quando o produto está em `Em desenvolvimento`
 

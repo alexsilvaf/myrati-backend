@@ -30,6 +30,7 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     public DbSet<License> LicensesSet => Set<License>();
     public DbSet<Client> ClientsSet => Set<Client>();
     public DbSet<CompanyCost> CompanyCostsSet => Set<CompanyCost>();
+    public DbSet<CashTransaction> CashTransactionsSet => Set<CashTransaction>();
     public DbSet<ConnectedUser> ConnectedUsersSet => Set<ConnectedUser>();
     public DbSet<CompanySettings> CompanySettingsSet => Set<CompanySettings>();
     public DbSet<ApiKeyCredential> ApiKeysSet => Set<ApiKeyCredential>();
@@ -59,6 +60,7 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
     IQueryable<License> IMyratiDbContext.Licenses => LicensesSet;
     IQueryable<Client> IMyratiDbContext.Clients => ClientsSet;
     IQueryable<CompanyCost> IMyratiDbContext.CompanyCosts => CompanyCostsSet;
+    IQueryable<CashTransaction> IMyratiDbContext.CashTransactions => CashTransactionsSet;
     IQueryable<ConnectedUser> IMyratiDbContext.ConnectedUsers => ConnectedUsersSet;
     IQueryable<CompanySettings> IMyratiDbContext.CompanySettings => CompanySettingsSet;
     IQueryable<ApiKeyCredential> IMyratiDbContext.ApiKeys => ApiKeysSet;
@@ -206,7 +208,7 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
             builder.Property(x => x.DevelopmentCost).HasPrecision(18, 2);
             builder.Property(x => x.MaintenanceCost).HasPrecision(18, 2);
             builder.Property(x => x.RevenueSharePercent).HasPrecision(5, 2);
-            builder.Property(x => x.MaintenanceProfitMargin).HasPrecision(5, 2);
+            builder.Property(x => x.MaintenanceProfitMargin).HasPrecision(18, 2);
         });
 
         modelBuilder.Entity<ProductCollaborator>(builder =>
@@ -297,6 +299,20 @@ public sealed class MyratiDbContext(DbContextOptions<MyratiDbContext> options)
             builder.Property(x => x.Vendor).HasMaxLength(160);
             builder.Property(x => x.Status).HasMaxLength(20);
             builder.HasIndex(x => new { x.Status, x.Category });
+        });
+
+        modelBuilder.Entity<CashTransaction>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.Type).HasMaxLength(20);
+            builder.Property(x => x.Category).HasMaxLength(40);
+            builder.Property(x => x.Amount).HasPrecision(18, 2);
+            builder.Property(x => x.Description).HasMaxLength(240);
+            builder.Property(x => x.ReferenceProductId).HasMaxLength(40);
+            builder.Property(x => x.ReferenceProductName).HasMaxLength(120);
+            builder.HasIndex(x => new { x.ReferenceProductId, x.Date });
+            builder.HasIndex(x => new { x.Date, x.CreatedAtUtc });
         });
 
         modelBuilder.Entity<ConnectedUser>(builder =>

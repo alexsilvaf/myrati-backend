@@ -23,6 +23,9 @@ public sealed class DashboardService(
         var licenses = await dbContext.Licenses.ToListAsync(cancellationToken);
         var clients = await dbContext.Clients.ToListAsync(cancellationToken);
         var products = await dbContext.Products.ToListAsync(cancellationToken);
+        var plans = await dbContext.ProductPlans.ToListAsync(cancellationToken);
+        var expenses = await dbContext.ProductExpenses.ToListAsync(cancellationToken);
+        var cashTransactions = await dbContext.CashTransactions.ToListAsync(cancellationToken);
         var users = await dbContext.ConnectedUsers.ToListAsync(cancellationToken);
         var snapshots = await dbContext.RevenueSnapshots
             .OrderBy(x => x.SortOrder)
@@ -31,15 +34,14 @@ public sealed class DashboardService(
             .OrderBy(x => x.SortOrder)
             .Take(8)
             .ToListAsync(cancellationToken);
+        var currentMonthStart = GetCurrentMonthStart();
+        var currentMonthEnd = currentMonthStart.AddMonths(1).AddDays(-1);
 
         var activeLicenses = licenses.Count(x => x.Status == "Ativa");
         var totalMaxUsers = licenses
             .Where(x => x.MaxUsers.HasValue)
             .Sum(x => x.MaxUsers ?? 0);
         var totalActiveUsers = licenses.Sum(x => x.ActiveUsers);
-        var totalRevenue = licenses
-            .Where(x => x.Status == "Ativa")
-            .Sum(x => x.MonthlyValue);
 
         var utilizationRate = totalMaxUsers == 0
             ? 0
@@ -47,11 +49,37 @@ public sealed class DashboardService(
         var activeLicensesOnly = licenses.Where(x => x.Status == "Ativa").ToArray();
         var productsById = products.ToDictionary(x => x.Id);
         var clientsById = clients.ToDictionary(x => x.Id);
+        var plansByProductId = plans.ToLookup(x => x.ProductId);
+        var expensesByProductId = expenses.ToLookup(x => x.ProductId);
+        var licensesByProductId = licenses.ToLookup(x => x.ProductId);
+        var revenueByProductId = products.ToDictionary(
+            product => product.Id,
+            product => CalculateProductMonthlyRevenue(
+                product,
+                plansByProductId[product.Id].ToArray(),
+                licensesByProductId[product.Id].ToArray(),
+                expensesByProductId[product.Id].ToArray()),
+            StringComparer.Ordinal);
+        var currentMonthTransactionRevenueByProductId = BuildTransactionRevenueByProductId(
+            cashTransactions,
+            currentMonthStart,
+            currentMonthEnd);
+        var dashboardRevenueByProductId = BuildDashboardRevenueByProductId(
+            products,
+            revenueByProductId,
+            currentMonthTransactionRevenueByProductId);
+        var productExpensesById = products.ToDictionary(
+            product => product.Id,
+            product => CalculateProductMonthlyExpenses(expensesByProductId[product.Id].ToArray()),
+            StringComparer.Ordinal);
+        var totalMonthlyProductExpenses = productExpensesById.Values.Sum();
+        var availableBalance = revenueByProductId.Values.Sum()
+            - totalMonthlyProductExpenses
+            + CalculateTransactionNetAmount(cashTransactions);
 
-        var revenueByProduct = activeLicensesOnly
-            .Where(x => productsById.ContainsKey(x.ProductId))
-            .GroupBy(x => productsById[x.ProductId].Name)
-            .Select(group => new RevenueByProductDto(group.Key, group.Sum(x => x.MonthlyValue)))
+        var revenueByProduct = products
+            .Select(product => new RevenueByProductDto(product.Name, dashboardRevenueByProductId[product.Id]))
+            .Where(item => item.Value > 0)
             .OrderByDescending(x => x.Value)
             .ToArray();
 
@@ -66,7 +94,6 @@ public sealed class DashboardService(
                     .Where(license => license.MaxUsers.HasValue)
                     .Sum(license => license.MaxUsers ?? 0);
                 var used = productLicenses.Sum(license => license.ActiveUsers);
-                var revenue = productLicenses.Sum(license => license.MonthlyValue);
                 var rate = capacity == 0
                     ? 0
                     : (int)Math.Round((double)used / capacity * 100, MidpointRounding.AwayFromZero);
@@ -76,7 +103,7 @@ public sealed class DashboardService(
                     product.Name,
                     capacity,
                     used,
-                    revenue,
+                    dashboardRevenueByProductId[product.Id],
                     rate);
             })
             .OrderByDescending(x => x.Revenue)
@@ -97,7 +124,10 @@ public sealed class DashboardService(
         var alerts = BuildAlerts(licenses, clientsById, productsById, productHealth, null);
 
         return new DashboardResponse(
-            totalRevenue,
+            availableBalance,
+            dashboardRevenueByProductId.Values.Sum()
+                + CalculateUnassignedTransactionRevenueForMonth(cashTransactions, currentMonthStart, currentMonthEnd),
+            totalMonthlyProductExpenses,
             activeLicenses,
             licenses.Count,
             users.Count(x => x.Status == "Online"),
@@ -105,7 +135,7 @@ public sealed class DashboardService(
             utilizationRate,
             clients.Count(x => x.Status == "Ativo"),
             true,
-            snapshots.Select(x => new MonthlyRevenueDto(x.Month, x.Revenue, x.Licenses)).ToArray(),
+            BuildGlobalMonthlyRevenue(snapshots, cashTransactions, currentMonthStart),
             revenueByProduct,
             activities.Select(x => new RecentActivityDto(x.Id, x.Action, x.Description, x.TimeDisplay, x.Type)).ToArray(),
             alerts,
@@ -156,6 +186,11 @@ public sealed class DashboardService(
         var expenses = await dbContext.ProductExpenses
             .Where(x => productIds.Contains(x.ProductId))
             .ToListAsync(cancellationToken);
+        var cashTransactions = revenueVisibleProductIds.Count == 0
+            ? []
+            : await dbContext.CashTransactions
+                .Where(x => !string.IsNullOrEmpty(x.ReferenceProductId) && revenueVisibleProductIds.Contains(x.ReferenceProductId))
+                .ToListAsync(cancellationToken);
         var visibleClientIds = licenses
             .Select(x => x.ClientId)
             .Concat(users.Select(x => x.ClientId))
@@ -180,6 +215,8 @@ public sealed class DashboardService(
         var plansByProductId = plans.ToLookup(x => x.ProductId);
         var expensesByProductId = expenses.ToLookup(x => x.ProductId);
         var licensesByProductId = licenses.ToLookup(x => x.ProductId);
+        var currentMonthStart = GetCurrentMonthStart();
+        var currentMonthEnd = currentMonthStart.AddMonths(1).AddDays(-1);
         var revenueByProductId = products.ToDictionary(
             product => product.Id,
             product => revenueVisibleProductIds.Contains(product.Id)
@@ -190,6 +227,24 @@ public sealed class DashboardService(
                     expensesByProductId[product.Id].ToArray())
                 : 0m,
             StringComparer.Ordinal);
+        var currentMonthTransactionRevenueByProductId = BuildTransactionRevenueByProductId(
+            cashTransactions,
+            currentMonthStart,
+            currentMonthEnd);
+        var dashboardRevenueByProductId = BuildDashboardRevenueByProductId(
+            products,
+            revenueByProductId,
+            currentMonthTransactionRevenueByProductId);
+        var productExpensesById = products.ToDictionary(
+            product => product.Id,
+            product => revenueVisibleProductIds.Contains(product.Id)
+                ? CalculateProductMonthlyExpenses(expensesByProductId[product.Id].ToArray())
+                : 0m,
+            StringComparer.Ordinal);
+        var totalMonthlyProductExpenses = productExpensesById.Values.Sum();
+        var availableBalance = revenueByProductId.Values.Sum()
+            - totalMonthlyProductExpenses
+            + CalculateTransactionNetAmount(cashTransactions);
 
         var productHealth = products
             .Select(product =>
@@ -210,7 +265,7 @@ public sealed class DashboardService(
                     product.Name,
                     capacity,
                     used,
-                    revenueByProductId[product.Id],
+                    dashboardRevenueByProductId[product.Id],
                     rate);
             })
             .OrderByDescending(x => x.Revenue)
@@ -219,7 +274,7 @@ public sealed class DashboardService(
 
         var revenueByProduct = products
             .Where(product => revenueVisibleProductIds.Contains(product.Id))
-            .Select(product => new RevenueByProductDto(product.Name, revenueByProductId[product.Id]))
+            .Select(product => new RevenueByProductDto(product.Name, dashboardRevenueByProductId[product.Id]))
             .Where(x => x.Value > 0)
             .OrderByDescending(x => x.Value)
             .ToArray();
@@ -240,7 +295,9 @@ public sealed class DashboardService(
         var alerts = BuildAlerts(licenses, clientsById, productsById, productHealth, revenueVisibleProductIds);
 
         return new DashboardResponse(
-            revenueByProductId.Values.Sum(),
+            availableBalance,
+            dashboardRevenueByProductId.Values.Sum(),
+            totalMonthlyProductExpenses,
             activeLicensesOnly.Count(),
             licenses.Count,
             users.Count(x => x.Status == "Online"),
@@ -248,7 +305,7 @@ public sealed class DashboardService(
             utilizationRate,
             clients.Count(x => x.Status == "Ativo"),
             revenueVisibleProductIds.Count > 0,
-            BuildDeveloperMonthlyRevenue(products, plansByProductId, expensesByProductId, licensesByProductId, revenueByProductId, revenueVisibleProductIds),
+            BuildDeveloperMonthlyRevenue(products, plansByProductId, expensesByProductId, licensesByProductId, revenueByProductId, revenueVisibleProductIds, cashTransactions),
             revenueByProduct,
             [],
             alerts,
@@ -258,6 +315,8 @@ public sealed class DashboardService(
 
     private static DashboardResponse BuildEmptyDashboard() =>
         new(
+            0m,
+            0m,
             0m,
             0,
             0,
@@ -279,7 +338,8 @@ public sealed class DashboardService(
         ILookup<string, Domain.Products.ProductExpense> expensesByProductId,
         ILookup<string, Domain.Products.License> licensesByProductId,
         IReadOnlyDictionary<string, decimal> currentRevenueByProductId,
-        IReadOnlySet<string> revenueVisibleProductIds)
+        IReadOnlySet<string> revenueVisibleProductIds,
+        IReadOnlyCollection<Domain.Costs.CashTransaction> cashTransactions)
     {
         if (revenueVisibleProductIds.Count == 0)
         {
@@ -313,10 +373,36 @@ public sealed class DashboardService(
                     }
                 }
 
+                monthRevenue += CalculateTransactionRevenueForMonth(cashTransactions, monthStart, monthEnd);
+
                 return new MonthlyRevenueDto(
                     FormatMonthLabel(monthStart),
                     monthRevenue,
                     licenseCount);
+            })
+            .ToArray();
+    }
+
+    private static MonthlyRevenueDto[] BuildGlobalMonthlyRevenue(
+        IReadOnlyList<Domain.Dashboard.RevenueSnapshot> snapshots,
+        IReadOnlyCollection<Domain.Costs.CashTransaction> cashTransactions,
+        DateOnly currentMonthStart)
+    {
+        if (snapshots.Count == 0)
+        {
+            return [];
+        }
+
+        return snapshots
+            .Select((snapshot, index) =>
+            {
+                var monthStart = currentMonthStart.AddMonths(index - (snapshots.Count - 1));
+                var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+
+                return new MonthlyRevenueDto(
+                    snapshot.Month,
+                    snapshot.Revenue + CalculateTransactionRevenueForMonth(cashTransactions, monthStart, monthEnd),
+                    snapshot.Licenses);
             })
             .ToArray();
     }
@@ -422,6 +508,62 @@ public sealed class DashboardService(
         _ => 2
     };
 
+    private static IReadOnlyDictionary<string, decimal> BuildDashboardRevenueByProductId(
+        IReadOnlyCollection<Domain.Products.Product> products,
+        IReadOnlyDictionary<string, decimal> revenueByProductId,
+        IReadOnlyDictionary<string, decimal> transactionRevenueByProductId) =>
+        products.ToDictionary(
+            product => product.Id,
+            product => revenueByProductId[product.Id]
+                + transactionRevenueByProductId.GetValueOrDefault(product.Id),
+            StringComparer.Ordinal);
+
+    private static IReadOnlyDictionary<string, decimal> BuildTransactionRevenueByProductId(
+        IReadOnlyCollection<Domain.Costs.CashTransaction> cashTransactions,
+        DateOnly monthStart,
+        DateOnly monthEnd) =>
+        cashTransactions
+            .Where(transaction => string.Equals(transaction.Type, "deposit", StringComparison.Ordinal))
+            .Where(transaction => !string.IsNullOrWhiteSpace(transaction.ReferenceProductId))
+            .Where(transaction => transaction.Date >= monthStart && transaction.Date <= monthEnd)
+            .GroupBy(transaction => transaction.ReferenceProductId!, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Sum(transaction => transaction.Amount),
+                StringComparer.Ordinal);
+
+    private static decimal CalculateTransactionRevenueForMonth(
+        IReadOnlyCollection<Domain.Costs.CashTransaction> cashTransactions,
+        DateOnly monthStart,
+        DateOnly monthEnd) =>
+        cashTransactions
+            .Where(transaction => string.Equals(transaction.Type, "deposit", StringComparison.Ordinal))
+            .Where(transaction => transaction.Date >= monthStart && transaction.Date <= monthEnd)
+            .Sum(transaction => transaction.Amount);
+
+    private static decimal CalculateUnassignedTransactionRevenueForMonth(
+        IReadOnlyCollection<Domain.Costs.CashTransaction> cashTransactions,
+        DateOnly monthStart,
+        DateOnly monthEnd) =>
+        cashTransactions
+            .Where(transaction => string.Equals(transaction.Type, "deposit", StringComparison.Ordinal))
+            .Where(transaction => string.IsNullOrWhiteSpace(transaction.ReferenceProductId))
+            .Where(transaction => transaction.Date >= monthStart && transaction.Date <= monthEnd)
+            .Sum(transaction => transaction.Amount);
+
+    private static decimal CalculateTransactionNetAmount(
+        IReadOnlyCollection<Domain.Costs.CashTransaction> cashTransactions) =>
+        cashTransactions.Sum(transaction =>
+            string.Equals(transaction.Type, "deposit", StringComparison.Ordinal)
+                ? transaction.Amount
+                : -transaction.Amount);
+
+    private static DateOnly GetCurrentMonthStart()
+    {
+        var today = ApplicationTime.LocalToday();
+        return new DateOnly(today.Year, today.Month, 1);
+    }
+
     private static decimal CalculateProductMonthlyRevenue(
         Domain.Products.Product product,
         IReadOnlyCollection<Domain.Products.ProductPlan> plans,
@@ -449,20 +591,12 @@ public sealed class DashboardService(
         IReadOnlyCollection<Domain.Products.ProductPlan> plans,
         IReadOnlyCollection<Domain.Products.ProductExpense> expenses)
     {
-        var primaryPlanMaintenanceCost = plans
-            .FirstOrDefault(plan => plan.MaintenanceCost.HasValue && plan.MaintenanceCost.Value > 0)?
-            .MaintenanceCost;
-
-        if (primaryPlanMaintenanceCost.HasValue)
-        {
-            return primaryPlanMaintenanceCost.Value;
-        }
-
         var monthlyExpenses = expenses.Sum(CalculateMonthlyExpenseEquivalent);
-        if (monthlyExpenses <= 0)
-        {
-            return 0m;
-        }
+        var fixedMaintenancePrice = plans
+            .Where(plan => plan.MaintenanceCost.HasValue)
+            .Select(plan => plan.MaintenanceCost!.Value)
+            .DefaultIfEmpty(0m)
+            .Average();
 
         var averageProfitMargin = plans
             .Where(plan => plan.MaintenanceProfitMargin.HasValue)
@@ -470,9 +604,14 @@ public sealed class DashboardService(
             .DefaultIfEmpty(0m)
             .Average();
 
-        var maintenanceRevenue = monthlyExpenses * (1 + (averageProfitMargin / 100m));
+        var marginOnExpenses = monthlyExpenses * (averageProfitMargin / 100m);
+        var maintenanceRevenue = fixedMaintenancePrice + marginOnExpenses;
         return Math.Round(maintenanceRevenue, 0, MidpointRounding.AwayFromZero);
     }
+
+    private static decimal CalculateProductMonthlyExpenses(
+        IReadOnlyCollection<Domain.Products.ProductExpense> expenses) =>
+        expenses.Sum(CalculateMonthlyExpenseEquivalent);
 
     private static decimal CalculateMonthlyExpenseEquivalent(Domain.Products.ProductExpense expense) =>
         expense.Recurrence switch

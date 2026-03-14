@@ -19,7 +19,9 @@ public sealed record DashboardProductHealthDto(
 public sealed record DashboardTopClientDto(string ClientId, string Company, decimal MonthlyRevenue);
 
 public sealed record DashboardResponse(
+    decimal AvailableBalance,
     decimal TotalMonthlyRevenue,
+    decimal TotalMonthlyProductExpenses,
     int ActiveLicensesCount,
     int TotalLicensesCount,
     int OnlineUsersCount,

@@ -28,6 +28,10 @@ public sealed class BackofficeReadEndpointsTests(CustomWebApplicationFactory fac
         dashboardResponse.EnsureSuccessStatusCode();
         var dashboard = await dashboardResponse.Content.ReadFromJsonAsync<DashboardResponse>();
 
+        var transactionsResponse = await client.GetAsync("/api/v1/backoffice/transactions");
+        transactionsResponse.EnsureSuccessStatusCode();
+        var transactions = await transactionsResponse.Content.ReadFromJsonAsync<IReadOnlyCollection<CashTransactionDto>>();
+
         var productsResponse = await client.GetAsync("/api/v1/backoffice/products");
         productsResponse.EnsureSuccessStatusCode();
         var products = await productsResponse.Content.ReadFromJsonAsync<IReadOnlyCollection<ProductSummaryDto>>();
@@ -86,6 +90,10 @@ public sealed class BackofficeReadEndpointsTests(CustomWebApplicationFactory fac
         Assert.NotEmpty(dashboard.Alerts);
         Assert.NotEmpty(dashboard.ProductHealth);
         Assert.NotEmpty(dashboard.TopClients);
+        Assert.True(dashboard.AvailableBalance > 0);
+
+        Assert.NotNull(transactions);
+        Assert.NotEmpty(transactions);
 
         Assert.NotNull(products);
         Assert.NotEmpty(products);

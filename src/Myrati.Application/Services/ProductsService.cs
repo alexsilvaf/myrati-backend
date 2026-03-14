@@ -1427,20 +1427,12 @@ public sealed class ProductsService(
         IReadOnlyCollection<ProductPlan> plans,
         IReadOnlyCollection<ProductExpense> expenses)
     {
-        var primaryPlanMaintenanceCost = plans
-            .FirstOrDefault(plan => plan.MaintenanceCost.HasValue && plan.MaintenanceCost.Value > 0)?
-            .MaintenanceCost;
-
-        if (primaryPlanMaintenanceCost.HasValue)
-        {
-            return primaryPlanMaintenanceCost.Value;
-        }
-
         var monthlyExpenses = expenses.Sum(CalculateMonthlyExpenseEquivalent);
-        if (monthlyExpenses <= 0)
-        {
-            return 0m;
-        }
+        var fixedMaintenancePrice = plans
+            .Where(plan => plan.MaintenanceCost.HasValue)
+            .Select(plan => plan.MaintenanceCost!.Value)
+            .DefaultIfEmpty(0m)
+            .Average();
 
         var averageProfitMargin = plans
             .Where(plan => plan.MaintenanceProfitMargin.HasValue)
@@ -1448,7 +1440,8 @@ public sealed class ProductsService(
             .DefaultIfEmpty(0m)
             .Average();
 
-        var maintenanceRevenue = monthlyExpenses * (1 + (averageProfitMargin / 100m));
+        var marginOnExpenses = monthlyExpenses * (averageProfitMargin / 100m);
+        var maintenanceRevenue = fixedMaintenancePrice + marginOnExpenses;
         return Math.Round(maintenanceRevenue, 0, MidpointRounding.AwayFromZero);
     }
 

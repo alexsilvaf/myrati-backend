@@ -27,6 +27,7 @@ public interface IMyratiDbContext
     IQueryable<License> Licenses { get; }
     IQueryable<Client> Clients { get; }
     IQueryable<CompanyCost> CompanyCosts { get; }
+    IQueryable<CashTransaction> CashTransactions { get; }
     IQueryable<ConnectedUser> ConnectedUsers { get; }
     IQueryable<CompanySettings> CompanySettings { get; }
     IQueryable<ApiKeyCredential> ApiKeys { get; }
