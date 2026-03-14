@@ -323,14 +323,19 @@ LIMIT 1;
         columnParameter.Value = columnName;
         command.Parameters.Add(columnParameter);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
-        {
-            return;
-        }
+        var precision = 0;
+        var scale = 0;
 
-        var precision = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetValue(0));
-        var scale = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1));
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return;
+            }
+
+            precision = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetValue(0));
+            scale = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1));
+        }
 
         if (precision == expectedPrecision && scale == expectedScale)
         {
