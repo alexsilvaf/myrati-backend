@@ -38,6 +38,7 @@ public sealed class ProductAndLicenseLifecycleEndpointsTests(CustomWebApplicatio
                     new UpsertProductPlanRequest("Scale", 15, 399m, null, null, null)
                 ]));
         Assert.Equal(HttpStatusCode.Created, createProductResponse.StatusCode);
+        Assert.Null(createProductResponse.Headers.Location);
 
         var createdProduct = await createProductResponse.Content.ReadFromJsonAsync<ProductDetailDto>();
         Assert.NotNull(createdProduct);

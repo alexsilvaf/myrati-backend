@@ -73,6 +73,13 @@ internal static class DatabaseSchemaCompatibilityUpgrader
                 $"""ALTER TABLE "{productPlanTable}" ADD COLUMN "RevenueSharePercent" NUMERIC NULL;""",
                 $"""ALTER TABLE "{productPlanTable}" ADD COLUMN "RevenueSharePercent" numeric(5,2) NULL;""",
                 cancellationToken);
+            await EnsureColumnNullableAsync(
+                connection,
+                context.Database.ProviderName,
+                productPlanTable,
+                "MaxUsers",
+                $"""ALTER TABLE "{productPlanTable}" ALTER COLUMN "MaxUsers" DROP NOT NULL;""",
+                cancellationToken);
 
             await EnsureColumnAsync(
                 connection,
@@ -89,6 +96,13 @@ internal static class DatabaseSchemaCompatibilityUpgrader
                 "RevenueSharePercent",
                 $"""ALTER TABLE "{licenseTable}" ADD COLUMN "RevenueSharePercent" NUMERIC NULL;""",
                 $"""ALTER TABLE "{licenseTable}" ADD COLUMN "RevenueSharePercent" numeric(5,2) NULL;""",
+                cancellationToken);
+            await EnsureColumnNullableAsync(
+                connection,
+                context.Database.ProviderName,
+                licenseTable,
+                "MaxUsers",
+                $"""ALTER TABLE "{licenseTable}" ALTER COLUMN "MaxUsers" DROP NOT NULL;""",
                 cancellationToken);
 
             await EnsureAuditLogTableAsync(
@@ -177,6 +191,22 @@ internal static class DatabaseSchemaCompatibilityUpgrader
 
         var sql = IsSqlite(providerName) ? sqliteSql : postgresSql;
         await ExecuteNonQueryAsync(connection, sql, cancellationToken);
+    }
+
+    private static async Task EnsureColumnNullableAsync(
+        DbConnection connection,
+        string? providerName,
+        string tableName,
+        string columnName,
+        string postgresSql,
+        CancellationToken cancellationToken)
+    {
+        if (IsSqlite(providerName) || await ColumnIsNullableAsync(connection, providerName, tableName, columnName, cancellationToken))
+        {
+            return;
+        }
+
+        await ExecuteNonQueryAsync(connection, postgresSql, cancellationToken);
     }
 
     private static async Task EnsureProductCollaboratorTableAsync(
@@ -766,6 +796,53 @@ CREATE TABLE "{securityIncidentTable}" (
         return IsSqlite(providerName)
             ? await ExistsAsync(connection, sql, cancellationToken, ("@column", columnName))
             : await ExistsAsync(connection, sql, cancellationToken, ("@table", tableName), ("@column", columnName));
+    }
+
+    private static async Task<bool> ColumnIsNullableAsync(
+        DbConnection connection,
+        string? providerName,
+        string tableName,
+        string columnName,
+        CancellationToken cancellationToken)
+    {
+        if (IsSqlite(providerName))
+        {
+            return true;
+        }
+
+        const string sql = """
+SELECT CASE
+    WHEN is_nullable = 'YES' THEN 1
+    ELSE 0
+END
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = @table
+  AND column_name = @column
+LIMIT 1;
+""";
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@table";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "@column";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result switch
+        {
+            1 => true,
+            long longValue when longValue == 1 => true,
+            decimal decimalValue when decimalValue == 1 => true,
+            _ => false
+        };
     }
 
     private static async Task<bool> ExistsAsync(

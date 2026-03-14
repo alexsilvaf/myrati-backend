@@ -31,7 +31,17 @@ public sealed class ProductsController(IProductsService productsService) : Contr
         CancellationToken cancellationToken)
     {
         var response = await productsService.CreateProductAsync(request, cancellationToken);
-        return CreatedAtAction(nameof(GetProduct), new { productId = response.Id }, response);
+        return StatusCode(StatusCodes.Status201Created, response);
+    }
+
+    [Authorize(Policy = "ProductCreate")]
+    [HttpPost("setup")]
+    public async Task<ActionResult<ProductDetailDto>> CreateProductSetup(
+        [FromBody] CreateProductSetupRequest request,
+        CancellationToken cancellationToken)
+    {
+        var response = await productsService.CreateProductSetupAsync(request, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, response);
     }
 
     [Authorize(Policy = "ProductScopedWrite")]

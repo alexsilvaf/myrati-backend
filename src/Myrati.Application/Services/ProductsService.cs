@@ -15,9 +15,11 @@ public sealed class ProductsService(
     IMyratiDbContext dbContext,
     ICurrentUserContext currentUserContext,
     IValidator<CreateProductRequest> createProductValidator,
+    IValidator<CreateProductSetupRequest> createProductSetupValidator,
     IValidator<UpdateProductRequest> updateProductValidator,
     IValidator<CreateLicenseRequest> createLicenseValidator,
     IValidator<UpdateLicenseRequest> updateLicenseValidator,
+    IValidator<ImportProductBacklogRequest> importBacklogValidator,
     IValidator<CreateProductSprintRequest> createSprintValidator,
     IValidator<UpdateProductSprintRequest> updateSprintValidator,
     IValidator<CreateProductTaskRequest> createTaskValidator,
@@ -138,39 +140,30 @@ public sealed class ProductsService(
     public async Task<ProductDetailDto> CreateProductAsync(CreateProductRequest request, CancellationToken cancellationToken = default)
     {
         await createProductValidator.ValidateRequestAsync(request, cancellationToken);
-
-        var normalizedName = request.Name.Trim().ToLowerInvariant();
-        var nameInUse = await dbContext.Products.AnyAsync(
-            x => x.Name.ToLower() == normalizedName,
-            cancellationToken);
-
-        if (nameInUse)
-        {
-            throw new ConflictException($"Já existe um produto com o nome '{request.Name}'.");
-        }
-
-        var productId = IdGenerator.NextPrefixedId(
-            "PRD-",
-            await dbContext.Products.Select(x => x.Id).ToListAsync(cancellationToken));
-
-        var product = new Product
-        {
-            Id = productId,
-            Name = request.Name.Trim(),
-            Description = request.Description.Trim(),
-            Category = request.Category.Trim(),
-            Status = request.Status,
-            SalesStrategy = request.SalesStrategy,
-            Version = request.Version.Trim(),
-            CreatedDate = ApplicationTime.LocalToday()
-        };
-
-        await dbContext.AddAsync(product, cancellationToken);
-        await ReplacePlansAsync(productId, request.Plans, cancellationToken);
-        await AddCreatorFullAccessAsync(productId, cancellationToken);
+        var product = await CreateProductEntityAsync(request, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        var response = await GetProductAsync(productId, cancellationToken);
+        var response = await GetProductAsync(product.Id, cancellationToken);
+        await PublishBackofficeEventAsync("product.created", response, cancellationToken);
+        return response;
+    }
+
+    public async Task<ProductDetailDto> CreateProductSetupAsync(
+        CreateProductSetupRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await createProductSetupValidator.ValidateRequestAsync(request, cancellationToken);
+
+        var product = await CreateProductEntityAsync(request.Product, cancellationToken);
+
+        if (request.InitialBacklog is not null)
+        {
+            _ = await ImportBacklogCoreAsync(product, request.InitialBacklog, cancellationToken);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var response = await GetProductAsync(product.Id, cancellationToken);
         await PublishBackofficeEventAsync("product.created", response, cancellationToken);
         return response;
     }
@@ -291,6 +284,7 @@ public sealed class ProductsService(
         }
 
         var plan = await GetPlanAsync(productId, request.Plan, cancellationToken);
+        EnsurePlanSupportsLicensing(plan);
         var pricing = ResolveLicensePricing(product.SalesStrategy, plan, request.MonthlyValue, request.DevelopmentCost, request.RevenueSharePercent);
         var startDate = RequestValidation.ParseIsoDate(request.StartDate, nameof(request.StartDate));
         var expiryDate = RequestValidation.ParseIsoDate(request.ExpiryDate, nameof(request.ExpiryDate));
@@ -336,6 +330,7 @@ public sealed class ProductsService(
             ?? throw new EntityNotFoundException("Cliente", request.ClientId);
         var product = await GetProductEntityAsync(license.ProductId, cancellationToken);
         var plan = await GetPlanAsync(product.Id, request.Plan, cancellationToken);
+        EnsurePlanSupportsLicensing(plan);
         var pricing = ResolveLicensePricing(product.SalesStrategy, plan, request.MonthlyValue, request.DevelopmentCost, request.RevenueSharePercent);
 
         var startDate = RequestValidation.ParseIsoDate(request.StartDate, nameof(request.StartDate));
@@ -408,6 +403,35 @@ public sealed class ProductsService(
             "license.deleted",
             new { licenseId = license.Id, license.ProductId, license.ClientId },
             cancellationToken);
+    }
+
+    public async Task<ProductBacklogImportResultDto> ImportBacklogAsync(
+        string productId,
+        ImportProductBacklogRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Sprints, ProductPermissionAction.Create, cancellationToken);
+        await EnsureProductPermissionAsync(productId, ProductPermissionScope.Tasks, ProductPermissionAction.Create, cancellationToken);
+        await importBacklogValidator.ValidateRequestAsync(request, cancellationToken);
+
+        var product = await GetProductEntityAsync(productId, cancellationToken);
+        var result = await ImportBacklogCoreAsync(product, request, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await PublishBackofficeEventAsync(
+            "backlog.imported",
+            new
+            {
+                product.Id,
+                product.Name,
+                result.CreatedSprints,
+                result.ReusedSprints,
+                result.CreatedTasks,
+                result.SkippedTasks
+            },
+            cancellationToken);
+
+        return result;
     }
 
     public async Task<ProductKanbanDto> GetKanbanAsync(string productId, CancellationToken cancellationToken = default)
@@ -662,6 +686,178 @@ public sealed class ProductsService(
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    private async Task<Product> CreateProductEntityAsync(CreateProductRequest request, CancellationToken cancellationToken)
+    {
+        var normalizedName = request.Name.Trim().ToLowerInvariant();
+        var nameInUse = await dbContext.Products.AnyAsync(
+            x => x.Name.ToLower() == normalizedName,
+            cancellationToken);
+
+        if (nameInUse)
+        {
+            throw new ConflictException($"Já existe um produto com o nome '{request.Name}'.");
+        }
+
+        var productId = IdGenerator.NextPrefixedId(
+            "PRD-",
+            await dbContext.Products.Select(x => x.Id).ToListAsync(cancellationToken));
+
+        var product = new Product
+        {
+            Id = productId,
+            Name = request.Name.Trim(),
+            Description = request.Description.Trim(),
+            Category = request.Category.Trim(),
+            Status = request.Status,
+            SalesStrategy = request.SalesStrategy,
+            Version = request.Version.Trim(),
+            CreatedDate = ApplicationTime.LocalToday()
+        };
+
+        await dbContext.AddAsync(product, cancellationToken);
+        await ReplacePlansAsync(productId, request.Plans, cancellationToken);
+        await AddCreatorFullAccessAsync(productId, cancellationToken);
+
+        return product;
+    }
+
+    private async Task<ProductBacklogImportResultDto> ImportBacklogCoreAsync(
+        Product product,
+        ImportProductBacklogRequest request,
+        CancellationToken cancellationToken)
+    {
+        EnsureProductSupportsKanban(product);
+
+        var existingSprints = request.MergeWithExistingSprints
+            ? await dbContext.ProductSprints
+                .Where(x => x.ProductId == product.Id)
+                .OrderBy(x => x.SortOrder)
+                .ThenBy(x => x.StartDate)
+                .ToListAsync(cancellationToken)
+            : [];
+        var existingTasks = request.MergeWithExistingSprints
+            ? await dbContext.ProductTasks
+                .Where(x => x.ProductId == product.Id)
+                .ToListAsync(cancellationToken)
+            : [];
+        var sprintIds = await dbContext.ProductSprints
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+        var taskIds = await dbContext.ProductTasks
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        var createdSprintCount = 0;
+        var reusedSprintCount = 0;
+        var createdTaskCount = 0;
+        var skippedTaskCount = 0;
+        var touchedSprints = new List<ProductSprintDto>();
+        var createdTasks = new List<ProductTaskDto>();
+        var nextSprintSortOrder = await GetNextSprintSortOrderAsync(product.Id, cancellationToken);
+        var nextTaskSortOrders = existingTasks
+            .GroupBy(x => (x.SprintId, x.Column))
+            .ToDictionary(
+                group => group.Key,
+                group => group.Max(x => x.SortOrder) + 1);
+
+        foreach (var importedSprint in request.Sprints)
+        {
+            var startDate = RequestValidation.ParseIsoDate(importedSprint.StartDate, nameof(importedSprint.StartDate));
+            var endDate = RequestValidation.ParseIsoDate(importedSprint.EndDate, nameof(importedSprint.EndDate));
+            ValidateSprintDates(startDate, endDate);
+
+            var sprint = request.MergeWithExistingSprints
+                ? existingSprints.FirstOrDefault(x => MatchesImportedSprint(x, importedSprint, startDate, endDate))
+                : null;
+
+            if (sprint is null)
+            {
+                await UpdateActiveSprintStateAsync(product.Id, importedSprint.Status, null, cancellationToken);
+
+                var sprintId = IdGenerator.NextPrefixedId("SPR-", sprintIds);
+                sprintIds.Add(sprintId);
+                sprint = new ProductSprint
+                {
+                    Id = sprintId,
+                    ProductId = product.Id,
+                    Name = importedSprint.Name.Trim(),
+                    StartDate = startDate,
+                    EndDate = endDate,
+                    Status = importedSprint.Status,
+                    SortOrder = nextSprintSortOrder++
+                };
+
+                await dbContext.AddAsync(sprint, cancellationToken);
+                existingSprints.Add(sprint);
+                createdSprintCount++;
+            }
+            else
+            {
+                reusedSprintCount++;
+                if (!string.Equals(sprint.Status, importedSprint.Status, StringComparison.Ordinal))
+                {
+                    await UpdateActiveSprintStateAsync(product.Id, importedSprint.Status, sprint.Id, cancellationToken);
+                    sprint.Status = importedSprint.Status;
+                    dbContext.Update(sprint);
+                }
+            }
+
+            touchedSprints.Add(MapSprint(sprint));
+
+            foreach (var importedTask in importedSprint.Tasks)
+            {
+                var normalizedTitle = importedTask.Title.Trim();
+                if (request.MergeWithExistingSprints
+                    && existingTasks.Any(x =>
+                        x.SprintId == sprint.Id
+                        && string.Equals(x.Title, normalizedTitle, StringComparison.OrdinalIgnoreCase)))
+                {
+                    skippedTaskCount++;
+                    continue;
+                }
+
+                var sortOrderKey = (sprint.Id, importedTask.Column);
+                var sortOrder = nextTaskSortOrders.TryGetValue(sortOrderKey, out var nextSortOrder)
+                    ? nextSortOrder
+                    : 1;
+                nextTaskSortOrders[sortOrderKey] = sortOrder + 1;
+
+                var taskId = IdGenerator.NextPrefixedId("TSK-", taskIds);
+                taskIds.Add(taskId);
+                var task = new ProductTask
+                {
+                    Id = taskId,
+                    ProductId = product.Id,
+                    SprintId = sprint.Id,
+                    Title = normalizedTitle,
+                    Description = (importedTask.Description ?? string.Empty).Trim(),
+                    Column = importedTask.Column,
+                    Priority = importedTask.Priority,
+                    Assignee = (importedTask.Assignee ?? string.Empty).Trim(),
+                    TagsSerialized = SerializeTags(importedTask.Tags),
+                    CreatedDate = ApplicationTime.LocalToday(),
+                    SortOrder = sortOrder
+                };
+
+                await dbContext.AddAsync(task, cancellationToken);
+                existingTasks.Add(task);
+                createdTasks.Add(MapTask(task));
+                createdTaskCount++;
+            }
+        }
+
+        return new ProductBacklogImportResultDto(
+            createdSprintCount,
+            reusedSprintCount,
+            createdTaskCount,
+            skippedTaskCount,
+            touchedSprints
+                .GroupBy(x => x.Id, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .ToArray(),
+            createdTasks);
+    }
+
     private async Task ReplacePlansAsync(
         string productId,
         IReadOnlyCollection<UpsertProductPlanRequest> plans,
@@ -849,11 +1045,29 @@ public sealed class ProductsService(
         }
     }
 
+    private static bool MatchesImportedSprint(
+        ProductSprint sprint,
+        ImportProductSprintRequest importedSprint,
+        DateOnly startDate,
+        DateOnly endDate) =>
+        sprint.StartDate == startDate
+        && sprint.EndDate == endDate
+        && string.Equals(sprint.Name, importedSprint.Name.Trim(), StringComparison.OrdinalIgnoreCase);
+
     private static void EnsureProductSupportsKanban(Product product)
     {
         if (product.Status != "Em desenvolvimento")
         {
             throw new ConflictException("O kanban só pode ser alterado em produtos com status 'Em desenvolvimento'.");
+        }
+    }
+
+    private static void EnsurePlanSupportsLicensing(ProductPlan plan)
+    {
+        if (plan.MaxUsers.HasValue && plan.MaxUsers.Value <= 0)
+        {
+            throw new ValidationException(
+                [new ValidationFailure("Plan", $"O plano '{plan.Name}' possui maxUsers inválido. Use um valor maior que zero ou deixe o campo nulo para ilimitado.")]);
         }
     }
 

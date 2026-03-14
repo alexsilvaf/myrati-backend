@@ -31,7 +31,7 @@ public sealed class ClientsController(IClientsService clientsService) : Controll
         CancellationToken cancellationToken)
     {
         var response = await clientsService.CreateClientAsync(request, cancellationToken);
-        return CreatedAtAction(nameof(GetClient), new { clientId = response.Id }, response);
+        return StatusCode(StatusCodes.Status201Created, response);
     }
 
     [Authorize(Policy = "BackofficeWrite")]

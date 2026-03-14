@@ -8,7 +8,7 @@ public sealed class UpsertProductPlanRequestValidator : AbstractValidator<Upsert
     public UpsertProductPlanRequestValidator()
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(60);
-        RuleFor(x => x.MaxUsers).GreaterThan(0);
+        RuleFor(x => x.MaxUsers).GreaterThan(0).When(x => x.MaxUsers.HasValue);
         RuleFor(x => x.MonthlyPrice).GreaterThanOrEqualTo(0);
         RuleFor(x => x.DevelopmentCost).GreaterThanOrEqualTo(0).When(x => x.DevelopmentCost.HasValue);
         RuleFor(x => x.MaintenanceCost).GreaterThanOrEqualTo(0).When(x => x.MaintenanceCost.HasValue);
@@ -39,7 +39,7 @@ public sealed class CreateProductRequestValidator : AbstractValidator<CreateProd
 
     private static void ValidatePlanPricing(CreateProductRequest request, ValidationContext<CreateProductRequest> context)
     {
-        ProductValidationRules.ValidatePlanPricing(request.SalesStrategy, request.Plans, context.AddFailure);
+        ProductValidationRules.ValidatePlanPricing(request.Status, request.SalesStrategy, request.Plans, context.AddFailure);
     }
 }
 
@@ -66,7 +66,67 @@ public sealed class UpdateProductRequestValidator : AbstractValidator<UpdateProd
 
     private static void ValidatePlanPricing(UpdateProductRequest request, ValidationContext<UpdateProductRequest> context)
     {
-        ProductValidationRules.ValidatePlanPricing(request.SalesStrategy, request.Plans, context.AddFailure);
+        ProductValidationRules.ValidatePlanPricing(request.Status, request.SalesStrategy, request.Plans, context.AddFailure);
+    }
+}
+
+public sealed class ImportProductTaskRequestValidator : AbstractValidator<ImportProductTaskRequest>
+{
+    public ImportProductTaskRequestValidator()
+    {
+        RuleFor(x => x.Title).NotEmpty().MaximumLength(160);
+        RuleFor(x => x.Description).MaximumLength(1000);
+        RuleFor(x => x.Column).Must(BeValidKanbanColumn);
+        RuleFor(x => x.Priority).Must(BeValidPriority);
+        RuleFor(x => x.Assignee).MaximumLength(160);
+        RuleForEach(x => x.Tags).MaximumLength(30);
+    }
+
+    private static bool BeValidKanbanColumn(string column) =>
+        column is "backlog" or "todo" or "in_progress" or "review" or "done";
+
+    private static bool BeValidPriority(string priority) =>
+        priority is "low" or "medium" or "high" or "critical";
+}
+
+public sealed class ImportProductSprintRequestValidator : AbstractValidator<ImportProductSprintRequest>
+{
+    public ImportProductSprintRequestValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(120);
+        RuleFor(x => x.StartDate).NotEmpty();
+        RuleFor(x => x.EndDate).NotEmpty();
+        RuleFor(x => x.Status).Must(BeValidSprintStatus);
+        RuleForEach(x => x.Tasks).SetValidator(new ImportProductTaskRequestValidator());
+    }
+
+    private static bool BeValidSprintStatus(string status) =>
+        status is "Planejada" or "Ativa" or "Concluída";
+}
+
+public sealed class ImportProductBacklogRequestValidator : AbstractValidator<ImportProductBacklogRequest>
+{
+    public ImportProductBacklogRequestValidator()
+    {
+        RuleFor(x => x.Sprints).NotEmpty();
+        RuleForEach(x => x.Sprints).SetValidator(new ImportProductSprintRequestValidator());
+    }
+}
+
+public sealed class CreateProductSetupRequestValidator : AbstractValidator<CreateProductSetupRequest>
+{
+    public CreateProductSetupRequestValidator()
+    {
+        RuleFor(x => x.Product).NotNull().SetValidator(new CreateProductRequestValidator());
+        When(
+            x => x.InitialBacklog is not null,
+            () =>
+            {
+                RuleFor(x => x.InitialBacklog!).SetValidator(new ImportProductBacklogRequestValidator());
+                RuleFor(x => x)
+                    .Must(x => x.Product.Status == "Em desenvolvimento")
+                    .WithMessage("O assistente inicial só pode criar sprint e tarefas quando o produto estiver em 'Em desenvolvimento'.");
+            });
     }
 }
 
@@ -205,40 +265,48 @@ public sealed class UpdateProductCollaboratorRequestValidator : AbstractValidato
 internal static class ProductValidationRules
 {
     public static void ValidatePlanPricing(
+        string status,
         string salesStrategy,
         IReadOnlyCollection<UpsertProductPlanRequest> plans,
         Action<string, string> addFailure)
     {
+        var allowDraftPlan = string.Equals(status, "Em desenvolvimento", StringComparison.Ordinal);
+
         foreach (var plan in plans)
         {
+            if (plan.MaxUsers.HasValue && plan.MaxUsers.Value <= 0)
+            {
+                addFailure(nameof(plan.MaxUsers), $"O plano '{plan.Name}' deve definir maxUsers maior que zero ou deixar o campo nulo para ilimitado.");
+            }
+
             switch (salesStrategy)
             {
                 case "subscription":
-                    if (plan.MonthlyPrice <= 0)
+                    if (!allowDraftPlan && plan.MonthlyPrice <= 0)
                     {
                         addFailure(nameof(plan.MonthlyPrice), $"O plano '{plan.Name}' precisa ter preço mensal maior que zero.");
                     }
 
                     break;
                 case "development":
-                    if (!plan.DevelopmentCost.HasValue || plan.DevelopmentCost.Value <= 0)
+                    if (!allowDraftPlan && (!plan.DevelopmentCost.HasValue || plan.DevelopmentCost.Value <= 0))
                     {
                         addFailure(nameof(plan.DevelopmentCost), $"O plano '{plan.Name}' precisa ter custo de desenvolvimento.");
                     }
 
-                    if (!plan.MaintenanceCost.HasValue || plan.MaintenanceCost.Value <= 0)
+                    if (!allowDraftPlan && (!plan.MaintenanceCost.HasValue || plan.MaintenanceCost.Value <= 0))
                     {
                         addFailure(nameof(plan.MaintenanceCost), $"O plano '{plan.Name}' precisa ter custo de manutenção.");
                     }
 
                     break;
                 case "revenue_share":
-                    if (!plan.MaintenanceCost.HasValue || plan.MaintenanceCost.Value <= 0)
+                    if (!allowDraftPlan && (!plan.MaintenanceCost.HasValue || plan.MaintenanceCost.Value <= 0))
                     {
                         addFailure(nameof(plan.MaintenanceCost), $"O plano '{plan.Name}' precisa ter custo de manutenção.");
                     }
 
-                    if (!plan.RevenueSharePercent.HasValue || plan.RevenueSharePercent.Value <= 0)
+                    if (!allowDraftPlan && (!plan.RevenueSharePercent.HasValue || plan.RevenueSharePercent.Value <= 0))
                     {
                         addFailure(nameof(plan.RevenueSharePercent), $"O plano '{plan.Name}' precisa ter percentual de participação.");
                     }

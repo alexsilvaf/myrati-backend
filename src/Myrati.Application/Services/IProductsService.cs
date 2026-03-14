@@ -7,6 +7,7 @@ public interface IProductsService
     Task<IReadOnlyCollection<ProductSummaryDto>> GetProductsAsync(CancellationToken cancellationToken = default);
     Task<ProductDetailDto> GetProductAsync(string productId, CancellationToken cancellationToken = default);
     Task<ProductDetailDto> CreateProductAsync(CreateProductRequest request, CancellationToken cancellationToken = default);
+    Task<ProductDetailDto> CreateProductSetupAsync(CreateProductSetupRequest request, CancellationToken cancellationToken = default);
     Task<ProductDetailDto> UpdateProductAsync(string productId, UpdateProductRequest request, CancellationToken cancellationToken = default);
     Task DeleteProductAsync(string productId, CancellationToken cancellationToken = default);
     Task<LicenseDto> CreateLicenseAsync(string productId, CreateLicenseRequest request, CancellationToken cancellationToken = default);
@@ -15,6 +16,7 @@ public interface IProductsService
     Task<LicenseDto> ReactivateLicenseAsync(string licenseId, CancellationToken cancellationToken = default);
     Task DeleteLicenseAsync(string licenseId, CancellationToken cancellationToken = default);
     Task<ProductKanbanDto> GetKanbanAsync(string productId, CancellationToken cancellationToken = default);
+    Task<ProductBacklogImportResultDto> ImportBacklogAsync(string productId, ImportProductBacklogRequest request, CancellationToken cancellationToken = default);
     Task<ProductSprintDto> CreateSprintAsync(string productId, CreateProductSprintRequest request, CancellationToken cancellationToken = default);
     Task<ProductSprintDto> UpdateSprintAsync(string productId, string sprintId, UpdateProductSprintRequest request, CancellationToken cancellationToken = default);
     Task DeleteSprintAsync(string productId, string sprintId, CancellationToken cancellationToken = default);

@@ -18,6 +18,17 @@ public sealed class ProductKanbanController(IProductsService productsService) : 
     }
 
     [Authorize(Policy = "ProductScopedWrite")]
+    [HttpPost("backlog/import")]
+    public async Task<ActionResult<ProductBacklogImportResultDto>> ImportBacklog(
+        string productId,
+        [FromBody] ImportProductBacklogRequest request,
+        CancellationToken cancellationToken)
+    {
+        var response = await productsService.ImportBacklogAsync(productId, request, cancellationToken);
+        return Ok(response);
+    }
+
+    [Authorize(Policy = "ProductScopedWrite")]
     [HttpPost("sprints")]
     public async Task<ActionResult<ProductSprintDto>> CreateSprint(
         string productId,

@@ -16,7 +16,7 @@ public sealed record LicenseActivationResponse(
     string Status,
     string StartDate,
     string ExpiryDate,
-    int MaxUsers,
+    int? MaxUsers,
     int ActiveUsers,
     string Message);
 

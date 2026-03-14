@@ -6,7 +6,7 @@ public sealed class ProductPlan : Entity
 {
     public string ProductId { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
-    public int MaxUsers { get; set; }
+    public int? MaxUsers { get; set; }
     public decimal MonthlyPrice { get; set; }
     public decimal? DevelopmentCost { get; set; }
     public decimal? MaintenanceCost { get; set; }

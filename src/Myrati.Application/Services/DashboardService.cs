@@ -22,7 +22,9 @@ public sealed class DashboardService(IMyratiDbContext dbContext) : IDashboardSer
             .ToListAsync(cancellationToken);
 
         var activeLicenses = licenses.Count(x => x.Status == "Ativa");
-        var totalMaxUsers = licenses.Sum(x => x.MaxUsers);
+        var totalMaxUsers = licenses
+            .Where(x => x.MaxUsers.HasValue)
+            .Sum(x => x.MaxUsers ?? 0);
         var totalActiveUsers = licenses.Sum(x => x.ActiveUsers);
         var totalRevenue = licenses
             .Where(x => x.Status == "Ativa")
@@ -49,7 +51,9 @@ public sealed class DashboardService(IMyratiDbContext dbContext) : IDashboardSer
                 var productLicenses = activeLicensesOnly
                     .Where(license => license.ProductId == product.Id)
                     .ToArray();
-                var capacity = productLicenses.Sum(license => license.MaxUsers);
+                var capacity = productLicenses
+                    .Where(license => license.MaxUsers.HasValue)
+                    .Sum(license => license.MaxUsers ?? 0);
                 var used = productLicenses.Sum(license => license.ActiveUsers);
                 var revenue = productLicenses.Sum(license => license.MonthlyValue);
                 var rate = capacity == 0

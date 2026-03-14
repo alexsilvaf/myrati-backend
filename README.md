@@ -908,9 +908,9 @@ Produtos agora expõem a estratégia comercial do item e, para telas de detalhe,
 
 | `salesStrategy` | Uso | Regras de plano |
 |-----------------|-----|-----------------|
-| `subscription` | Licenciamento mensal tradicional | `monthlyPrice > 0` |
-| `development` | Projeto sob encomenda + manutenção | `developmentCost > 0` e `maintenanceCost > 0` |
-| `revenue_share` | Manutenção + participação no faturamento | `maintenanceCost > 0` e `revenueSharePercent > 0` |
+| `subscription` | Licenciamento mensal tradicional | `monthlyPrice > 0` quando o produto nao estiver em `Em desenvolvimento` |
+| `development` | Projeto sob encomenda + manutenção | `developmentCost > 0` e `maintenanceCost > 0` quando o produto nao estiver em `Em desenvolvimento` |
+| `revenue_share` | Manutenção + participação no faturamento | `maintenanceCost > 0` e `revenueSharePercent > 0` quando o produto nao estiver em `Em desenvolvimento` |
 
 #### `GET /api/v1/backoffice/products`
 
@@ -1049,13 +1049,13 @@ Cria um produto com planos e estratégia de venda.
 | `version` | string | Sim | Máx. 30 |
 | `plans` | array | Sim | Pelo menos 1 plano |
 | `plans[].name` | string | Sim | Máx. 60 |
-| `plans[].maxUsers` | int | Sim | `> 0` |
+| `plans[].maxUsers` | int | Sim | `>= 0`; em `Ativo`/`Inativo` precisa ser `> 0` |
 | `plans[].monthlyPrice` | decimal | Sim | `>= 0` |
-| `plans[].developmentCost` | decimal | Condicional | Obrigatório em `development` |
-| `plans[].maintenanceCost` | decimal | Condicional | Obrigatório em `development` e `revenue_share` |
-| `plans[].revenueSharePercent` | decimal | Condicional | Obrigatório em `revenue_share` |
+| `plans[].developmentCost` | decimal | Condicional | Obrigatório em `development` fora do rascunho |
+| `plans[].maintenanceCost` | decimal | Condicional | Obrigatório em `development` e `revenue_share` fora do rascunho |
+| `plans[].revenueSharePercent` | decimal | Condicional | Obrigatório em `revenue_share` fora do rascunho |
 
-**Response `201 Created`:** retorna `ProductDetailDto`.
+**Response `201 Created`:** retorna `ProductDetailDto` em JSON, sem cabeçalho `Location`.
 
 #### `PUT /api/v1/backoffice/products/{productId}`
 
@@ -2044,7 +2044,7 @@ Health check da aplicação.
 
 | Campo | Regra |
 |-------|-------|
-| `maxUsers` (plano) | Maior que 0 |
+| `maxUsers` (plano) | Maior ou igual a 0; para licenciar precisa ser maior que 0 |
 | `monthlyPrice` (plano) | Maior ou igual a 0 |
 | `developmentCost` (plano/licença) | Maior que 0 quando informado |
 | `maintenanceCost` (plano) | Maior que 0 quando exigido pela estratégia |
@@ -2059,9 +2059,11 @@ Health check da aplicação.
 - `confirmPassword` deve ser igual a `newPassword`
 - `expiryDate` da licença deve ser posterior a `startDate`
 - `endDate` da sprint deve ser posterior a `startDate`
-- produtos `subscription` exigem `monthlyPrice > 0` em todos os planos
-- produtos `development` exigem `developmentCost` e `maintenanceCost` em todos os planos
-- produtos `revenue_share` exigem `maintenanceCost` e `revenueSharePercent` em todos os planos
+- produtos em `Em desenvolvimento` aceitam plano em rascunho com campos comerciais pendentes
+- produtos `subscription` exigem `monthlyPrice > 0` em todos os planos quando saem do rascunho
+- produtos `development` exigem `developmentCost` e `maintenanceCost` em todos os planos quando saem do rascunho
+- produtos `revenue_share` exigem `maintenanceCost` e `revenueSharePercent` em todos os planos quando saem do rascunho
+- licenças exigem plano com `maxUsers > 0`
 - o kanban só aceita escrita quando o produto está em `Em desenvolvimento`
 
 ---

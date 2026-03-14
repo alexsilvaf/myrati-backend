@@ -8,7 +8,7 @@ public sealed class License : Entity
     public string ClientId { get; set; } = string.Empty;
     public string ProductId { get; set; } = string.Empty;
     public string Plan { get; set; } = string.Empty;
-    public int MaxUsers { get; set; }
+    public int? MaxUsers { get; set; }
     public int ActiveUsers { get; set; }
     public string Status { get; set; } = "Ativa";
     public DateOnly StartDate { get; set; }

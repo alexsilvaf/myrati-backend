@@ -3,7 +3,7 @@ namespace Myrati.Application.Contracts;
 public sealed record ProductPlanDto(
     string Id,
     string Name,
-    int MaxUsers,
+    int? MaxUsers,
     decimal MonthlyPrice,
     decimal? DevelopmentCost,
     decimal? MaintenanceCost,
@@ -16,7 +16,7 @@ public sealed record LicenseDto(
     string ProductId,
     string ProductName,
     string Plan,
-    int MaxUsers,
+    int? MaxUsers,
     int ActiveUsers,
     string Status,
     string StartDate,
@@ -49,6 +49,14 @@ public sealed record ProductKanbanDto(
     IReadOnlyCollection<ProductSprintDto> Sprints,
     IReadOnlyCollection<ProductTaskDto> Tasks,
     IReadOnlyCollection<string> AvailableAssignees);
+
+public sealed record ProductBacklogImportResultDto(
+    int CreatedSprints,
+    int ReusedSprints,
+    int CreatedTasks,
+    int SkippedTasks,
+    IReadOnlyCollection<ProductSprintDto> Sprints,
+    IReadOnlyCollection<ProductTaskDto> Tasks);
 
 public sealed record ProductPermissionSetDto(
     bool View,
@@ -111,7 +119,7 @@ public sealed record ProductDetailDto(
 
 public sealed record UpsertProductPlanRequest(
     string Name,
-    int MaxUsers,
+    int? MaxUsers,
     decimal MonthlyPrice,
     decimal? DevelopmentCost,
     decimal? MaintenanceCost,
@@ -125,6 +133,29 @@ public sealed record CreateProductRequest(
     string SalesStrategy,
     string Version,
     IReadOnlyCollection<UpsertProductPlanRequest> Plans);
+
+public sealed record ImportProductTaskRequest(
+    string Title,
+    string Description,
+    string Column,
+    string Priority,
+    string Assignee,
+    IReadOnlyCollection<string> Tags);
+
+public sealed record ImportProductSprintRequest(
+    string Name,
+    string StartDate,
+    string EndDate,
+    string Status,
+    IReadOnlyCollection<ImportProductTaskRequest> Tasks);
+
+public sealed record ImportProductBacklogRequest(
+    bool MergeWithExistingSprints,
+    IReadOnlyCollection<ImportProductSprintRequest> Sprints);
+
+public sealed record CreateProductSetupRequest(
+    CreateProductRequest Product,
+    ImportProductBacklogRequest? InitialBacklog);
 
 public sealed record UpdateProductRequest(
     string Name,
